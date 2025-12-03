@@ -1,0 +1,100 @@
+{
+  "project_info": {
+    "water_density_seawater": 64.0,
+    "water_density_freshwater": 62.4,
+    "fluid_density_oil": 53.0,
+    "fluid_density_gas": 0.7,
+    "gravitational_acceleration": 32.174,
+    "hydrotest_factor": 1.25,
+    "design_life_years": 25
+  },
+  "scenarios": [
+    {
+      "name": "Case 1: TTR PIP Inner Tube",
+      "type": "Riser",
+      "riser_type": "TTR",
+      "manufacturing": "Seamless",
+      "geometry": {
+        "od_inches": 4.5,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.0625,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "X-80",
+        "smys_ksi": 80.0,
+        "uts_ksi": 90.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 5000.0,
+        "design_external_pressure_psi": 4000.0,
+        "hydrotest_pressure_psi": 6250.0,
+        "bending_strain": 0.0003,
+        "bending_strain_installation": 0.0005,
+        "depth_lat_m": 38.0,
+        "depth_hat_m": 40.0,
+        "use_annulus_pressure": true
+      }
+    },
+    {
+      "name": "Case 2: Subsea Pipeline (Buried)",
+      "type": "Pipeline",
+      "riser_type": "",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 16.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 1400.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 1750.0,
+        "bending_strain": 0.00005,
+        "bending_strain_installation": 0.00008,
+        "depth_lat_m": 38.0,
+        "depth_hat_m": 41.0,
+        "use_annulus_pressure": false
+      }
+    },
+    {
+      "name": "Case 3: Subsea Flowline",
+      "type": "Flowline",
+      "riser_type": "",
+      "manufacturing": "Seamless",
+      "geometry": {
+        "od_inches": 8.625,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.0625,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "X-65",
+        "smys_ksi": 65.0,
+        "uts_ksi": 77.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 3000.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 3750.0,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 50.0,
+        "depth_hat_m": 52.0,
+        "use_annulus_pressure": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,726 @@
+{
+  "risers": {
+    "1": {
+      "name": "Rigid Riser - Gas Pipeline",
+      "type": "Pipeline",
+      "riser_type": "",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 24.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-65",
+        "smys_ksi": 65.0,
+        "uts_ksi": 77.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 1315.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 1643.75,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 43.0,
+        "depth_hat_m": 31.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "2": {
+      "name": "Rigid Riser - Gas Pipeline",
+      "type": "Pipeline",
+      "riser_type": "",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 16.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-60",
+        "smys_ksi": 60.0,
+        "uts_ksi": 75.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 1350.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 1687.5,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 32.0,
+        "depth_hat_m": 31.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "3": {
+      "name": "Rigid Riser - Multiphase",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 16.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 1400.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 1750.0,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 41.0,
+        "depth_hat_m": 38.0,
+        "fluid_content": "Multiphase",
+        "use_annulus_pressure": false
+      },
+      "highlight": true
+    },
+    "4": {
+      "name": "Rigid Riser - Multiphase",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 10.75,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 230.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 287.5,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 39.0,
+        "depth_hat_m": 39.0,
+        "fluid_content": "Multiphase",
+        "use_annulus_pressure": false
+      }
+    },
+    "5": {
+      "name": "Rigid Riser - Gas",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 12.75,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 1420.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 1775.0,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 45.0,
+        "depth_hat_m": 44.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "6": {
+      "name": "Rigid Riser - Gas",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 8.63,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 260.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 325.0,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 46.0,
+        "depth_hat_m": 45.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "7": {
+      "name": "Rigid Riser - Gas",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 20.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 250.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 312.5,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 22.0,
+        "depth_hat_m": 16.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "8": {
+      "name": "Rigid Riser - Oil",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 8.63,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 230.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 287.5,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 31.0,
+        "depth_hat_m": 23.0,
+        "fluid_content": "Oil",
+        "use_annulus_pressure": false
+      }
+    },
+    "9": {
+      "name": "Rigid Riser - Oil",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 12.75,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 230.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 287.5,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 29.0,
+        "depth_hat_m": 22.0,
+        "fluid_content": "Oil",
+        "use_annulus_pressure": false
+      }
+    },
+    "10": {
+      "name": "Rigid Riser - Gas",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 16.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 230.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 287.5,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 42.0,
+        "depth_hat_m": 38.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "11": {
+      "name": "Rigid Riser - Gas",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 16.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 230.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 287.5,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 45.0,
+        "depth_hat_m": 43.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "12": {
+      "name": "Rigid Riser - Gas",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 16.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 1400.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 1750.0,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 30.0,
+        "depth_hat_m": 9.6,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "13": {
+      "name": "Rigid Riser - Multiphase",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 12.75,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 1400.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 1750.0,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 35.5,
+        "depth_hat_m": 33.0,
+        "fluid_content": "Multiphase",
+        "use_annulus_pressure": false
+      }
+    },
+    "14": {
+      "name": "Rigid Riser - Oil",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 12.75,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 260.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 325.0,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 43.5,
+        "depth_hat_m": 41.5,
+        "fluid_content": "Oil",
+        "use_annulus_pressure": false
+      }
+    },
+    "15": {
+      "name": "Rigid Riser - Gas",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 8.625,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 285.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 356.25,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 41.5,
+        "depth_hat_m": 40.9,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "16": {
+      "name": "Rigid Riser - Gas",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 8.625,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 285.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 356.25,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 41.0,
+        "depth_hat_m": 27.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "17": {
+      "name": "Rigid Riser - Oil",
+      "type": "Riser",
+      "riser_type": "Rigid",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 12.75,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 655.0,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 818.75,
+        "bending_strain": 0.0002,
+        "bending_strain_installation": 0.0003,
+        "depth_lat_m": 33.5,
+        "depth_hat_m": 30.0,
+        "fluid_content": "Oil",
+        "use_annulus_pressure": false
+      }
+    },
+    "18": {
+      "name": "TTR PIP Outer Casing - Multiphase",
+      "type": "Riser",
+      "riser_type": "TTR",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 9.63,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.0625,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-80",
+        "smys_ksi": 80.0,
+        "uts_ksi": 90.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 4000.0,
+        "design_external_pressure_psi": 4000.0,
+        "hydrotest_pressure_psi": 5000.0,
+        "bending_strain": 0.0003,
+        "bending_strain_installation": 0.0005,
+        "depth_lat_m": 40.0,
+        "depth_hat_m": 38.0,
+        "fluid_content": "Multiphase",
+        "use_annulus_pressure": true
+      }
+    },
+    "19": {
+      "name": "TTR PIP Outer Casing - Multiphase",
+      "type": "Riser",
+      "riser_type": "TTR",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 9.63,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.0625,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-80",
+        "smys_ksi": 80.0,
+        "uts_ksi": 90.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 4000.0,
+        "design_external_pressure_psi": 4000.0,
+        "hydrotest_pressure_psi": 5000.0,
+        "bending_strain": 0.0003,
+        "bending_strain_installation": 0.0005,
+        "depth_lat_m": 65.0,
+        "depth_hat_m": 63.0,
+        "fluid_content": "Multiphase",
+        "use_annulus_pressure": true
+      }
+    },
+    "20": {
+      "name": "TTR PIP Inner Tube - Gas (Outer: 4000psi, Tube: 5000psi)",
+      "type": "Riser",
+      "riser_type": "TTR",
+      "manufacturing": "Seamless",
+      "geometry": {
+        "od_inches": 4.5,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.0625,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-80",
+        "smys_ksi": 80.0,
+        "uts_ksi": 90.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 5000.0,
+        "design_external_pressure_psi": 4000.0,
+        "hydrotest_pressure_psi": 6250.0,
+        "bending_strain": 0.0003,
+        "bending_strain_installation": 0.0005,
+        "depth_lat_m": 65.0,
+        "depth_hat_m": 38.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": true
+      },
+      "highlight": true
+    },
+    "21": {
+      "name": "TTR PIP Inner Tube - Gas (Outer: 4000psi, Tube: 5000psi)",
+      "type": "Riser",
+      "riser_type": "TTR",
+      "manufacturing": "Seamless",
+      "geometry": {
+        "od_inches": 4.5,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.0625,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-80",
+        "smys_ksi": 80.0,
+        "uts_ksi": 90.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 5000.0,
+        "design_external_pressure_psi": 4000.0,
+        "hydrotest_pressure_psi": 6250.0,
+        "bending_strain": 0.0003,
+        "bending_strain_installation": 0.0005,
+        "depth_lat_m": 65.0,
+        "depth_hat_m": 63.0,
+        "fluid_content": "Gas",
+        "use_annulus_pressure": true
+      }
+    },
+    "22": {
+      "name": "SCR - Wet Gas",
+      "type": "Riser",
+      "riser_type": "SCR",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 6.63,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-52",
+        "smys_ksi": 52.0,
+        "uts_ksi": 66.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 2002.97,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 2503.71,
+        "bending_strain": 0.0008,
+        "bending_strain_installation": 0.001,
+        "depth_lat_m": 29.8,
+        "depth_hat_m": 29.0,
+        "fluid_content": "Wet Gas",
+        "use_annulus_pressure": false
+      }
+    },
+    "23": {
+      "name": "SCR - Multiphase",
+      "type": "Riser",
+      "riser_type": "SCR",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 16.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-65",
+        "smys_ksi": 65.0,
+        "uts_ksi": 77.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 2002.97,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 2503.71,
+        "bending_strain": 0.0008,
+        "bending_strain_installation": 0.001,
+        "depth_lat_m": 29.8,
+        "depth_hat_m": 29.0,
+        "fluid_content": "Multiphase",
+        "use_annulus_pressure": false
+      }
+    },
+    "24": {
+      "name": "SCR - Multiphase",
+      "type": "Riser",
+      "riser_type": "SCR",
+      "manufacturing": "DSAW",
+      "geometry": {
+        "od_inches": 16.0,
+        "ovality": 0.005,
+        "corrosion_allowance_inches": 0.125,
+        "mill_tolerance_percent": 12.5
+      },
+      "material": {
+        "grade": "API 5L X-65",
+        "smys_ksi": 65.0,
+        "uts_ksi": 77.0,
+        "modulus_of_elasticity_ksi": 30000.0,
+        "poisson_ratio": 0.3
+      },
+      "loads": {
+        "design_internal_pressure_psi": 2002.97,
+        "design_external_pressure_psi": null,
+        "hydrotest_pressure_psi": 2503.71,
+        "bending_strain": 0.0008,
+        "bending_strain_installation": 0.001,
+        "depth_lat_m": 29.8,
+        "depth_hat_m": 29.0,
+        "fluid_content": "Multiphase",
+        "use_annulus_pressure": false
+      }
+    }
+  }
+}
