@@ -713,6 +713,10 @@ if run_analysis:
         recommended_thickness = analysis_result['recommended_thickness']
         
         if least_thickness is not None:
+            # Get schedule name for recommended thickness
+            schedule_names = asme_b36_10.get_schedule_for_thickness(od, recommended_thickness)
+            schedule_str = "/".join(schedule_names) if schedule_names else "Custom"
+            
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -729,9 +733,9 @@ if run_analysis:
                 <div class="metric-container" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border: 3px solid #e14d5a;">
                     <h3 style="color: #ffffff; margin: 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">Recommended Thickness</h3>
                     <p style="font-size: 2.5rem; font-weight: bold; margin: 0.5rem 0; color: #ffffff;">{:.4f}"</p>
-                    <p style="color: #f0f0f0; margin: 0; font-weight: 500;">Standard/Nominal</p>
+                    <p style="color: #f0f0f0; margin: 0; font-weight: 500;">Schedule {}</p>
                 </div>
-                """.format(recommended_thickness), unsafe_allow_html=True)
+                """.format(recommended_thickness, schedule_str), unsafe_allow_html=True)
             
             with col3:
                 d_over_t = od / recommended_thickness
@@ -772,7 +776,7 @@ if run_analysis:
                     with col1:
                         st.markdown("**Geometry**")
                         st.write(f"OD: {od}\"")
-                        st.write(f"Nominal WT: {recommended_thickness}\"")
+                        st.write(f"Nominal WT: {recommended_thickness}\" (Sch. {schedule_str})")
                         st.write(f"Ovality: {ovality:.4f}")
                         st.write(f"Corrosion: {corrosion_allowance}\"")
                         st.write(f"Mill Tol: {mill_tolerance}%")
