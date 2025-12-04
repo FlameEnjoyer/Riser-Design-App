@@ -439,26 +439,48 @@ def run_full_analysis(config):
     
     condition_order = ['installation', 'hydrotest', 'operation']
     
+    # Target utilization for recommended thickness (85% = 0.85)
+    # This gives ~15% safety margin beyond the minimum passing
+    TARGET_MAX_UTILIZATION = 0.85
+    
     for wt in standard_thicknesses:
         condition_results = {}
         all_conditions_pass = True
+        max_utilization = 0.0  # Track maximum utilization across all checks
         
         for cond_key in condition_order:
             cond_result = analyze_condition_streamlit(config, cond_key, wt)
             condition_results[cond_key] = cond_result
             if not cond_result['all_pass']:
                 all_conditions_pass = False
+            
+            # Calculate max utilization from all 5 checks in this condition
+            for check_name in ['burst', 'collapse', 'propagation', 'bending', 'hoop']:
+                check_result = cond_result.get(check_name, {})
+                util = check_result.get('utilization', 0.0)
+                if util is not None and util != float('inf'):
+                    max_utilization = max(max_utilization, util)
         
         result_entry = {
             'wall_thickness': wt,
             'all_pass': all_conditions_pass,
-            'conditions': condition_results
+            'conditions': condition_results,
+            'max_utilization': max_utilization
         }
         results.append(result_entry)
         
+        # Find least thickness (first passing)
         if all_conditions_pass and least_thickness is None:
             least_thickness = wt
-            recommended_thickness = wt
+        
+        # Find recommended thickness (first with utilization <= 85%)
+        if all_conditions_pass and recommended_thickness is None:
+            if max_utilization <= TARGET_MAX_UTILIZATION:
+                recommended_thickness = wt
+    
+    # If no thickness meets the 85% target, use the least passing thickness
+    if recommended_thickness is None and least_thickness is not None:
+        recommended_thickness = least_thickness
     
     return {
         'results': results,
@@ -717,25 +739,36 @@ if run_analysis:
             schedule_names = asme_b36_10.get_schedule_for_thickness(od, recommended_thickness)
             schedule_str = "/".join(schedule_names) if schedule_names else "Custom"
             
+            # Get utilization for both thicknesses
+            least_util = None
+            recommended_util = None
+            for res in analysis_result['results']:
+                if res['wall_thickness'] == least_thickness:
+                    least_util = res.get('max_utilization', 0)
+                if res['wall_thickness'] == recommended_thickness:
+                    recommended_util = res.get('max_utilization', 0)
+            
             col1, col2, col3 = st.columns(3)
             
             with col1:
+                least_util_pct = (least_util * 100) if least_util else 0
                 st.markdown("""
                 <div class="metric-container" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: 3px solid #5a67d8;">
                     <h3 style="color: #ffffff; margin: 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">Least Thickness</h3>
                     <p style="font-size: 2.5rem; font-weight: bold; margin: 0.5rem 0; color: #ffffff;">{:.4f}"</p>
-                    <p style="color: #f0f0f0; margin: 0; font-weight: 500;">Minimum Required</p>
+                    <p style="color: #f0f0f0; margin: 0; font-weight: 500;">Utilization: {:.1f}%</p>
                 </div>
-                """.format(least_thickness), unsafe_allow_html=True)
+                """.format(least_thickness, least_util_pct), unsafe_allow_html=True)
             
             with col2:
+                recommended_util_pct = (recommended_util * 100) if recommended_util else 0
                 st.markdown("""
                 <div class="metric-container" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border: 3px solid #e14d5a;">
                     <h3 style="color: #ffffff; margin: 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">Recommended Thickness</h3>
                     <p style="font-size: 2.5rem; font-weight: bold; margin: 0.5rem 0; color: #ffffff;">{:.4f}"</p>
-                    <p style="color: #f0f0f0; margin: 0; font-weight: 500;">Schedule {}</p>
+                    <p style="color: #f0f0f0; margin: 0; font-weight: 500;">Schedule {} | Util: {:.1f}%</p>
                 </div>
-                """.format(recommended_thickness, schedule_str), unsafe_allow_html=True)
+                """.format(recommended_thickness, schedule_str, recommended_util_pct), unsafe_allow_html=True)
             
             with col3:
                 d_over_t = od / recommended_thickness
@@ -748,6 +781,13 @@ if run_analysis:
                 """.format(d_over_t), unsafe_allow_html=True)
             
             st.success("✅ **Analysis Complete**: Design meets all API RP 1111 and ASME B31.4/B31.8 criteria for all life cycle conditions.")
+            
+            # Explanation of Least vs Recommended
+            if least_thickness != recommended_thickness:
+                st.info(f"ℹ️ **Note**: Least Thickness ({least_thickness:.4f}\") is the minimum passing wall thickness. "
+                       f"Recommended Thickness ({recommended_thickness:.4f}\") provides additional margin with utilization ≤ 85%.")
+            else:
+                st.info(f"ℹ️ **Note**: Least and Recommended are the same because the minimum passing thickness already has utilization ≤ 85%.")
             
         else:
             st.error("❌ **No suitable wall thickness found!** All standard thicknesses failed one or more design criteria.")
