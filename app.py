@@ -787,6 +787,40 @@ if run_analysis:
         else:
             st.error("❌ **No suitable wall thickness found!** All standard thicknesses failed one or more design criteria.")
             st.warning("Consider: Increasing OD, upgrading material grade, or reducing design pressures/bending strains.")
+            
+            # Show diagnostic information - what's failing?
+            if analysis_result and analysis_result['results']:
+                with st.expander("🔍 Diagnostic: Why all thicknesses failed", expanded=True):
+                    # Find thickest wall result
+                    thickest_result = analysis_result['results'][-1]
+                    thickest_wt = thickest_result['wall_thickness']
+                    
+                    st.write(f"**Analysis of thickest available wall ({thickest_wt}\" nominal):**")
+                    
+                    for cond_name, cond_result in thickest_result['conditions'].items():
+                        st.markdown(f"**{cond_result['condition_name']}** (Effective WT: {cond_result['effective_wt']:.4f}\")")
+                        
+                        checks = ['burst', 'collapse', 'propagation', 'bending', 'hoop']
+                        check_names = ['Burst', 'Collapse', 'Propagation', 'Bending', 'Hoop']
+                        
+                        for check, name in zip(checks, check_names):
+                            result = cond_result[check]
+                            status = "✓" if result['pass_fail'] else "✗"
+                            sf = result.get('safety_factor', 0)
+                            util = result.get('utilization', 0)
+                            
+                            if sf == float('inf'):
+                                sf_str = "∞"
+                            elif sf > 100:
+                                sf_str = ">100"
+                            else:
+                                sf_str = f"{sf:.2f}"
+                            
+                            if not result['pass_fail']:
+                                st.write(f"  {status} **{name}**: SF={sf_str}, Utilization={util:.1%} ← **FAILS**")
+                            else:
+                                st.write(f"  {status} {name}: SF={sf_str}")
+                        st.write("")
         
         st.markdown("---")
         
