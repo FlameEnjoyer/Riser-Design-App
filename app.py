@@ -359,7 +359,6 @@ def create_results_dataframe(condition_result):
     checks_data.append({
         'Check': '1. Burst Pressure',
         'Safety Factor': sf_burst,
-        'Utilization': f"{burst['utilization']:.2%}" if p_i > 0 else "N/A",
         'Status': '✓ PASS' if burst['pass_fail'] else '✗ FAIL',
         'Remark': remark_burst
     })
@@ -372,7 +371,6 @@ def create_results_dataframe(condition_result):
     checks_data.append({
         'Check': '2. External Collapse',
         'Safety Factor': sf_collapse,
-        'Utilization': f"{collapse['utilization']:.2%}",
         'Status': '✓ PASS' if collapse['pass_fail'] else '✗ FAIL',
         'Remark': remark_collapse
     })
@@ -385,7 +383,6 @@ def create_results_dataframe(condition_result):
     checks_data.append({
         'Check': '3. Propagation Buckling',
         'Safety Factor': sf_prop,
-        'Utilization': f"{prop['utilization']:.2%}",
         'Status': '✓ PASS' if prop['pass_fail'] else '✗ FAIL',
         'Remark': remark_prop
     })
@@ -398,7 +395,6 @@ def create_results_dataframe(condition_result):
     checks_data.append({
         'Check': '4. Combined Bending+Pressure',
         'Safety Factor': sf_bend,
-        'Utilization': f"{bend['utilization']:.2%}",
         'Status': '✓ PASS' if bend['pass_fail'] else '✗ FAIL',
         'Remark': remark_bend
     })
@@ -415,7 +411,6 @@ def create_results_dataframe(condition_result):
     checks_data.append({
         'Check': '5. Hoop Stress (ASME B31.4/B31.8)',
         'Safety Factor': sf_hoop,
-        'Utilization': f"{hoop['utilization']:.2%}" if p_i > 0 else "N/A",
         'Status': '✓ PASS' if hoop['pass_fail'] else '✗ FAIL',
         'Remark': remark_hoop
     })
