@@ -4,6 +4,7 @@ Provides standard wall thicknesses for various nominal pipe sizes
 Data extracted from official ASME B36.10/B36.19 specification
 
 Structure: OD (inches) -> {schedule_name: wall_thickness_inches}
+Version: 2.0 - Updated December 2025
 """
 
 # ASME B36.10 Schedule Database
