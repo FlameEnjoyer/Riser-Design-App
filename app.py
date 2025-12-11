@@ -2,7 +2,10 @@
 Riser Design Calculation Web App
 API RP 1111 + ASME B31.4/B31.8 checks
 
-Manual-entry only. No AI integration.
+Three Life Cycle Conditions:
+- Installation: No internal pressure, no corrosion, with mill tolerance
+- Hydrotest: Elevated internal pressure (1.25x design), no corrosion, with mill tolerance
+- Operation: Design pressures, with corrosion and mill tolerance
 """
 
 import math
@@ -38,19 +41,27 @@ DEFAULT_E_PSI = 2.9e7
 DEFAULT_POISSON = 0.30
 DEFAULT_WATER_DENSITY = 64.0  # lb/ft^3
 
+# Design life and corrosion parameters (from Team 8 data)
+DESIGN_LIFE_YEARS = 20
+CORROSION_RATE_PER_YEAR = 0.004  # inch/year
+MILL_TOLERANCE = 0.125  # 12.5% = wall thickness factor 0.875
+HYDROTEST_FACTOR = 1.25
+
 TEAM8_REFERENCE = {
     "Gas Riser (ID 3)": {
         "od": 20.0,
         "wt": 0.750,
         "grade": "X-52",
-        "design_pressure": 211.0,
-        "shut_in_pressure": 250.0,
+        "design_pressure": 250.0,  # Design pressure
+        "shut_in_pressure": 211.0,  # Shut-in at subsea wellhead
+        "shut_in_location": "Subsea Wellhead",
         "water_depth": 700.0,
         "fluid_type": "Gas",
         "fluid_sg": 0.05,
         "manufacturing": "SMLS",
         "design_category": "Riser",
-        "corrosion_allowance": 0.125,
+        "ovality_type": "Other Type",
+        "ovality": 0.005,  # 0.5%
     },
     "Oil Riser (ID 8)": {
         "od": 8.63,
@@ -58,12 +69,14 @@ TEAM8_REFERENCE = {
         "grade": "X-52",
         "design_pressure": 195.0,
         "shut_in_pressure": 230.0,
+        "shut_in_location": "Subsea Wellhead",
         "water_depth": 960.0,
         "fluid_type": "Oil",
         "fluid_sg": 0.82,
         "manufacturing": "SMLS",
         "design_category": "Riser",
-        "corrosion_allowance": 0.125,
+        "ovality_type": "Other Type",
+        "ovality": 0.005,
     },
 }
 
@@ -82,7 +95,6 @@ def schedule_name_for_thickness(od: float, wt: float) -> str:
 class PipeProperties:
     od_in: float
     wt_in: float
-    corrosion_allowance_in: float
     grade: str
     manufacturing: str
     design_category: str  # "Pipeline" or "Riser"
@@ -90,6 +102,8 @@ class PipeProperties:
     fluid_sg: float
     smys_psi: float
     uts_psi: float
+    ovality_type: str  # "Reel-lay" or "Other Type"
+    ovality: float
     E_psi: float = DEFAULT_E_PSI
     poisson: float = DEFAULT_POISSON
 
@@ -98,13 +112,16 @@ class PipeProperties:
 class LoadingCondition:
     design_pressure_psi: float
     shut_in_pressure_psi: float
+    shut_in_location: str  # "Subsea Wellhead" or "Top of Riser"
     water_depth_m: float
 
 
 # -----------------------------------------------------------------------------
-# Core calculation engine
+# Life Cycle Analyzer
 # -----------------------------------------------------------------------------
-class RiserCalculator:
+class LifeCycleAnalyzer:
+    """Analyzes all three life cycle conditions: Installation, Hydrotest, Operation"""
+    
     def __init__(self, pipe: PipeProperties, load: LoadingCondition):
         self.pipe = pipe
         self.load = load
@@ -113,13 +130,35 @@ class RiserCalculator:
     def _ft_from_m(depth_m: float) -> float:
         return depth_m * 3.28084
 
-    def external_pressure(self) -> float:
+    def external_pressure_psi(self) -> float:
+        """Calculate hydrostatic external pressure"""
         depth_ft = self._ft_from_m(self.load.water_depth_m)
         return DEFAULT_WATER_DENSITY * depth_ft / 144.0
 
+    def effective_wall_thickness(self, use_mill_tolerance: bool, use_corrosion: bool) -> float:
+        """
+        Calculate effective wall thickness per life cycle condition
+        - Installation/Hydrotest: WT × 0.875 (mill tolerance only)
+        - Operation: (WT × 0.875) - (corrosion_rate × design_life)
+        """
+        wt = self.pipe.wt_in
+        
+        # Apply mill tolerance (12.5% reduction = 0.875 factor)
+        if use_mill_tolerance:
+            wt = wt * (1.0 - MILL_TOLERANCE)
+        
+        # Apply corrosion (only for operation: rate × design life)
+        if use_corrosion:
+            corrosion_total = CORROSION_RATE_PER_YEAR * DESIGN_LIFE_YEARS
+            wt = wt - corrosion_total
+        
+        return max(wt, 0.001)  # Ensure positive
+
     def _hoop_design_factor(self) -> float:
+        """Design factor per ASME B31.4/B31.8 based on category and fluid type"""
         if self.pipe.design_category.lower() == "pipeline":
             return 0.72
+        # Riser design factors
         if self.pipe.fluid_type.lower() in ["gas", "wet gas"]:
             return 0.50
         if self.pipe.fluid_type.lower() in ["oil", "multiphase"]:
@@ -128,17 +167,20 @@ class RiserCalculator:
 
     @staticmethod
     def _burst_design_factor(design_category: str) -> float:
+        """Burst design factor per API RP 1111 Section 4.3.1"""
         return 0.90 if design_category.lower() == "pipeline" else 0.75
 
     def compute_burst(self, p_internal: float, p_external: float, wt_eff: float) -> Dict[str, Any]:
+        """Burst pressure check per API RP 1111 Section 4.3.1"""
         fd = self._burst_design_factor(self.pipe.design_category)
-        fe = 1.0
-        ft = 1.0
+        fe = 1.0  # Weld joint factor
+        ft = 1.0  # Temperature factor
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
 
         pb = 0.90 * smys * wt_eff / (od - wt_eff) if od > wt_eff else 0.0
         delta_p = p_internal - p_external
+        
         if delta_p <= 0:
             sf = float("inf")
         else:
@@ -159,15 +201,18 @@ class RiserCalculator:
         }
 
     def compute_collapse(self, p_internal: float, p_external: float, wt_eff: float) -> Dict[str, Any]:
+        """External collapse check per API RP 1111 Section 4.3.2"""
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
         E = self.pipe.E_psi
         nu = self.pipe.poisson
+        ovality = self.pipe.ovality
         f_o = MANUFACTURING_COLLAPSE_FACTOR.get(self.pipe.manufacturing.upper(), 0.70)
 
         t_over_d = wt_eff / od
         py = 2 * smys * t_over_d
-        pe = (2 * E * (t_over_d ** 3)) / (1 - nu ** 2)
+        # Pe adjusted for ovality per API RP 1111 Section 4.3.2
+        pe = (2 * E * (t_over_d ** 3)) / ((1 - nu ** 2) * (1 + ovality))
         pc = (py * pe) / math.sqrt(py ** 2 + pe ** 2) if (py > 0 and pe > 0) else 0.0
 
         delta_p = p_external - p_internal
@@ -182,6 +227,7 @@ class RiserCalculator:
             "pe": pe,
             "pc": pc,
             "collapse_factor": f_o,
+            "ovality": ovality,
             "safety_factor": sf,
             "utilization": 0 if sf == float("inf") else 1 / sf,
             "pass_fail": sf >= 1.0,
@@ -189,6 +235,7 @@ class RiserCalculator:
         }
 
     def compute_propagation(self, p_internal: float, p_external: float, wt_eff: float) -> Dict[str, Any]:
+        """Propagation buckling check per API RP 1111 Section 4.3.2.3"""
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
         fp = 0.80
@@ -212,6 +259,7 @@ class RiserCalculator:
         }
 
     def compute_hoop(self, p_internal: float, p_external: float, wt_eff: float) -> Dict[str, Any]:
+        """Hoop stress check per ASME B31.4 Section 402.3"""
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
         design_factor = self._hoop_design_factor()
@@ -236,10 +284,11 @@ class RiserCalculator:
             "details": {"delta_p": delta_p},
         }
 
-    def run_all(self) -> Dict[str, Any]:
-        p_internal = max(self.load.design_pressure_psi, self.load.shut_in_pressure_psi)
-        p_external = self.external_pressure()
-        wt_eff = max(self.pipe.wt_in - self.pipe.corrosion_allowance_in, 1e-6)
+    def analyze_condition(self, condition_name: str, p_internal: float, 
+                          use_mill_tolerance: bool, use_corrosion: bool) -> Dict[str, Any]:
+        """Analyze one life cycle condition"""
+        p_external = self.external_pressure_psi()
+        wt_eff = self.effective_wall_thickness(use_mill_tolerance, use_corrosion)
 
         burst = self.compute_burst(p_internal, p_external, wt_eff)
         collapse = self.compute_collapse(p_internal, p_external, wt_eff)
@@ -254,20 +303,80 @@ class RiserCalculator:
         all_pass = all(c["pass_fail"] for c in checks)
 
         return {
-            "inputs": {
-                "pipe": asdict(self.pipe),
-                "loading": asdict(self.load),
-                "p_internal_governing": p_internal,
-                "p_external": p_external,
-                "wt_effective": wt_eff,
-            },
+            "condition_name": condition_name,
+            "p_internal_psi": p_internal,
+            "p_external_psi": p_external,
+            "wt_nominal": self.pipe.wt_in,
+            "wt_effective": wt_eff,
+            "mill_tolerance_applied": use_mill_tolerance,
+            "corrosion_applied": use_corrosion,
             "checks": checks,
             "all_pass": all_pass,
             "limiting": limiting,
         }
 
+    def run_all_conditions(self) -> Dict[str, Any]:
+        """
+        Analyze all three life cycle conditions:
+        1. Installation: No internal pressure, mill tolerance only
+        2. Hydrotest: 1.25× design pressure, mill tolerance only
+        3. Operation: Design/shut-in pressure, mill tolerance + corrosion
+        """
+        p_external = self.external_pressure_psi()
+        
+        # Determine governing internal pressure for operation
+        # If shut-in at top of riser, use shut-in pressure
+        # If shut-in at subsea wellhead, use design pressure
+        if self.load.shut_in_location == "Top of Riser":
+            p_operation = max(self.load.shut_in_pressure_psi, self.load.design_pressure_psi)
+        else:  # Subsea Wellhead
+            p_operation = self.load.design_pressure_psi
+        
+        # 1. Installation: Empty pipe, no internal pressure
+        installation = self.analyze_condition(
+            "Installation",
+            p_internal=0.0,
+            use_mill_tolerance=True,
+            use_corrosion=False
+        )
+        
+        # 2. Hydrotest: 1.25× design pressure
+        hydrotest = self.analyze_condition(
+            "Hydrotest",
+            p_internal=self.load.design_pressure_psi * HYDROTEST_FACTOR,
+            use_mill_tolerance=True,
+            use_corrosion=False
+        )
+        
+        # 3. Operation: Design/shut-in pressure with corrosion
+        operation = self.analyze_condition(
+            "Operation",
+            p_internal=p_operation,
+            use_mill_tolerance=True,
+            use_corrosion=True
+        )
+        
+        # Check if ALL conditions pass
+        all_conditions_pass = (
+            installation["all_pass"] and 
+            hydrotest["all_pass"] and 
+            operation["all_pass"]
+        )
+        
+        return {
+            "pipe": asdict(self.pipe),
+            "loading": asdict(self.load),
+            "conditions": {
+                "installation": installation,
+                "hydrotest": hydrotest,
+                "operation": operation,
+            },
+            "all_conditions_pass": all_conditions_pass,
+        }
+
 
 def evaluate_standard_thicknesses(base_pipe: PipeProperties, load: LoadingCondition) -> pd.DataFrame:
+    """Evaluate all standard thicknesses per ASME B36.10"""
     thicknesses = asme_b36_10.get_standard_thicknesses(base_pipe.od_in)
     if not thicknesses:
         return pd.DataFrame()
@@ -275,19 +384,59 @@ def evaluate_standard_thicknesses(base_pipe: PipeProperties, load: LoadingCondit
     records: List[Dict[str, Any]] = []
     for wt in thicknesses:
         pipe_variant = PipeProperties(**{**asdict(base_pipe), "wt_in": wt})
-        calc = RiserCalculator(pipe_variant, load)
-        result = calc.run_all()
-        limiting_sf = result["limiting"]["safety_factor"]
+        analyzer = LifeCycleAnalyzer(pipe_variant, load)
+        result = analyzer.run_all_conditions()
+        
+        # Find worst safety factor across all conditions and checks
+        min_sf = float("inf")
+        limiting_condition = ""
+        limiting_check = ""
+        
+        for cond_name, cond_result in result["conditions"].items():
+            if cond_result["limiting"]["safety_factor"] < min_sf:
+                min_sf = cond_result["limiting"]["safety_factor"]
+                limiting_condition = cond_name.capitalize()
+                limiting_check = cond_result["limiting"]["name"]
+        
         records.append({
             "WT (in)": wt,
             "Schedule": schedule_name_for_thickness(base_pipe.od_in, wt),
-            "Limiting Check": result["limiting"]["name"],
-            "Safety Factor": limiting_sf,
-            "Utilization (%)": 0 if limiting_sf == float("inf") else round(100 / limiting_sf, 1),
-            "Status": "PASS" if result["all_pass"] else "FAIL",
+            "Limiting Condition": limiting_condition,
+            "Limiting Check": limiting_check,
+            "Safety Factor": min_sf,
+            "Utilization (%)": 0 if min_sf == float("inf") else round(100 / min_sf, 1),
+            "Status": "PASS" if result["all_conditions_pass"] else "FAIL",
         })
 
     return pd.DataFrame(records)
+
+
+def find_closest_passing_standard_wt(base_pipe: PipeProperties, load: LoadingCondition, 
+                                      input_wt: float) -> Tuple[float, str]:
+    """
+    Find closest standard thickness >= input_wt that passes all conditions.
+    Uses floor-to-up approach (round up from input).
+    """
+    thicknesses = asme_b36_10.get_standard_thicknesses(base_pipe.od_in)
+    if not thicknesses:
+        return None, "No standard thicknesses available"
+    
+    # Filter thicknesses >= input_wt
+    candidates = [wt for wt in thicknesses if wt >= input_wt]
+    if not candidates:
+        return None, "No standard thickness >= input thickness"
+    
+    # Test each candidate starting from smallest
+    for wt in sorted(candidates):
+        pipe_variant = PipeProperties(**{**asdict(base_pipe), "wt_in": wt})
+        analyzer = LifeCycleAnalyzer(pipe_variant, load)
+        result = analyzer.run_all_conditions()
+        
+        if result["all_conditions_pass"]:
+            schedule = schedule_name_for_thickness(base_pipe.od_in, wt)
+            return wt, schedule
+    
+    return None, "No passing standard thickness found"
 
 
 # -----------------------------------------------------------------------------
@@ -352,7 +501,7 @@ def render_styles():
     color: #fff;
     display: inline-block;
 }}
-.subdued {{ color: #475569; font-size: 0.9rem; }}
+.subdued {{ color: #cbd5e1; font-size: 0.9rem; }}
 .stTabs [data-baseweb="tab-list"] button {{
     gap: 8px;
     padding: 10px 16px;
@@ -380,23 +529,6 @@ def render_styles():
     st.markdown(style, unsafe_allow_html=True)
 
 
-def render_hero():
-    st.markdown(
-        """
-        <div class='headline-card'>
-            <div class='main-header'>Riser Design Analysis Tool</div>
-            <div class='subdued'>API RP 1111 burst/collapse/propagation + ASME B31.4/B31.8 hoop checks</div>
-            <div style='margin-top:12px; display:flex; gap:12px; flex-wrap:wrap;'>
-                <span class='badge-pill' style='background:linear-gradient(120deg, #22c55e, #16a34a);'>Manual Entry Only</span>
-                <span class='badge-pill' style='background:linear-gradient(120deg, #3b82f6, #1e3a8a);'>No AI Calls</span>
-                <span class='badge-pill' style='background:linear-gradient(120deg, #f59e0b, #f97316);'>Design Factors per Standard</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def status_pill(text: str, positive: bool) -> str:
     color = COLOR_SUCCESS if positive else COLOR_ALERT
     return f"<span class='badge-pill' style='background:{color};'>{text}</span>"
@@ -406,45 +538,72 @@ def info_chip(label: str, value: str) -> str:
     return f"<span class='metric-chip'>{label}: {value}</span>"
 
 
+def render_hero():
+    st.markdown(
+        """
+        <div class='headline-card'>
+            <div class='main-header'>Riser Design Analysis Tool</div>
+            <div class='subdued'>API RP 1111 burst/collapse/propagation + ASME B31.4/B31.8 hoop checks</div>
+            <div class='subdued' style='margin-top:8px;'>Three life cycle conditions: Installation, Hydrotest, Operation</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def initialize_state():
+    """Initialize session state with Gas Riser defaults"""
     defaults = TEAM8_REFERENCE["Gas Riser (ID 3)"]
     for key, value in {
         "od_in": defaults["od"],
         "wt_in": defaults["wt"],
         "design_pressure": defaults["design_pressure"],
         "shut_in_pressure": defaults["shut_in_pressure"],
+        "shut_in_location": defaults["shut_in_location"],
         "water_depth": defaults["water_depth"],
-        "corrosion_allowance": defaults["corrosion_allowance"],
         "fluid_sg": defaults["fluid_sg"],
         "grade": defaults["grade"],
         "manufacturing": defaults["manufacturing"],
         "fluid_type": defaults["fluid_type"],
         "design_category": defaults["design_category"],
+        "ovality_type": defaults["ovality_type"],
+        "ovality": defaults["ovality"],
     }.items():
         st.session_state.setdefault(key, value)
 
 
 def apply_reference(name: str):
+    """Load Team 8 reference data into form"""
     ref = TEAM8_REFERENCE[name]
     st.session_state.od_in = ref["od"]
     st.session_state.wt_in = ref["wt"]
     st.session_state.design_pressure = ref["design_pressure"]
     st.session_state.shut_in_pressure = ref["shut_in_pressure"]
+    st.session_state.shut_in_location = ref["shut_in_location"]
     st.session_state.water_depth = ref["water_depth"]
-    st.session_state.corrosion_allowance = ref.get("corrosion_allowance", 0.0)
-    st.session_state.fluid_sg = ref.get("fluid_sg", 1.0)
-    st.session_state.grade = ref.get("grade", "X-52")
-    st.session_state.manufacturing = ref.get("manufacturing", "SMLS")
-    st.session_state.fluid_type = ref.get("fluid_type", "Gas")
-    st.session_state.design_category = ref.get("design_category", "Riser")
+    st.session_state.fluid_sg = ref["fluid_sg"]
+    st.session_state.grade = ref["grade"]
+    st.session_state.manufacturing = ref["manufacturing"]
+    st.session_state.fluid_type = ref["fluid_type"]
+    st.session_state.design_category = ref["design_category"]
+    st.session_state.ovality_type = ref["ovality_type"]
+    st.session_state.ovality = ref["ovality"]
+    st.success(f"Loaded {name} data. You can modify any values.")
 
 
 def build_pipe_and_load() -> Tuple[PipeProperties, LoadingCondition]:
+    """Build pipe and loading objects from session state"""
     grade_props = GRADE_PROPERTIES.get(st.session_state.grade, GRADE_PROPERTIES["X-52"])
+    
+    # Get ovality based on type
+    if st.session_state.ovality_type == "Reel-lay":
+        ovality_value = 0.01  # 1%
+    else:  # Other Type
+        ovality_value = 0.005  # 0.5%
+    
     pipe = PipeProperties(
         od_in=st.session_state.od_in,
         wt_in=st.session_state.wt_in,
-        corrosion_allowance_in=st.session_state.corrosion_allowance,
         grade=st.session_state.grade,
         manufacturing=st.session_state.manufacturing,
         design_category=st.session_state.design_category,
@@ -452,10 +611,13 @@ def build_pipe_and_load() -> Tuple[PipeProperties, LoadingCondition]:
         fluid_sg=st.session_state.fluid_sg,
         smys_psi=grade_props["smys_psi"],
         uts_psi=grade_props["uts_psi"],
+        ovality_type=st.session_state.ovality_type,
+        ovality=ovality_value,
     )
     load = LoadingCondition(
         design_pressure_psi=st.session_state.design_pressure,
         shut_in_pressure_psi=st.session_state.shut_in_pressure,
+        shut_in_location=st.session_state.shut_in_location,
         water_depth_m=st.session_state.water_depth,
     )
     return pipe, load
@@ -464,137 +626,178 @@ def build_pipe_and_load() -> Tuple[PipeProperties, LoadingCondition]:
 def render_input_sections():
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
     st.subheader("Design Inputs")
-    st.caption("Manual data entry only. Reference buttons simply pre-fill the form; nothing is auto-loaded.")
+    st.caption("Enter all values manually. Team 8 reference buttons pre-fill the form for convenience.")
 
-    tabs = st.tabs(["Pipe Properties", "Pressures", "Environment"])
+    tabs = st.tabs(["Pipe Properties", "Pressures & Loading", "Environment"])
 
     with tabs[0]:
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.session_state.od_in = st.number_input("Outer Diameter (in)", min_value=2.0, max_value=48.0, value=st.session_state.od_in, step=0.01)
-            st.session_state.wt_in = st.number_input("Wall Thickness (in)", min_value=0.1, max_value=3.0, value=st.session_state.wt_in, step=0.01)
-            st.session_state.corrosion_allowance = st.number_input("Corrosion Allowance (in)", min_value=0.0, max_value=0.5, value=st.session_state.corrosion_allowance, step=0.01)
+            st.session_state.od_in = st.number_input("Outer Diameter (in)", min_value=2.0, max_value=48.0, value=st.session_state.od_in, step=0.01, format="%.3f")
+            st.session_state.wt_in = st.number_input("Wall Thickness (in)", min_value=0.1, max_value=3.0, value=st.session_state.wt_in, step=0.01, format="%.4f")
+            st.caption(f"Mill tolerance: {MILL_TOLERANCE*100}% | Corrosion: {CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f}\" over {DESIGN_LIFE_YEARS} years")
         with col2:
             st.session_state.grade = st.selectbox("Pipe Grade", list(GRADE_PROPERTIES.keys()), index=list(GRADE_PROPERTIES.keys()).index(st.session_state.grade))
-            st.session_state.manufacturing = st.selectbox("Pipe Type (Manufacturing)", ["SMLS", "ERW", "DSAW"], index=["SMLS", "ERW", "DSAW"].index(st.session_state.manufacturing))
+            st.session_state.manufacturing = st.selectbox("Manufacturing Type", ["SMLS", "ERW", "DSAW"], index=["SMLS", "ERW", "DSAW"].index(st.session_state.manufacturing))
             st.session_state.design_category = st.selectbox("Design Category", ["Riser", "Pipeline"], index=["Riser", "Pipeline"].index(st.session_state.design_category))
         with col3:
             st.session_state.fluid_type = st.selectbox("Fluid Type", ["Gas", "Oil", "Multiphase", "Wet Gas"], index=["Gas", "Oil", "Multiphase", "Wet Gas"].index(st.session_state.fluid_type))
             st.session_state.fluid_sg = st.number_input("Fluid Specific Gravity", min_value=0.02, max_value=1.50, value=st.session_state.fluid_sg, step=0.01)
-            st.caption("SMYS/UTS auto-filled from selected grade.")
+            st.session_state.ovality_type = st.selectbox("Ovality Type", ["Other Type", "Reel-lay"], index=["Other Type", "Reel-lay"].index(st.session_state.ovality_type))
+            st.caption("Ovality: 0.5% (Other Type) or 1.0% (Reel-lay) per API RP 1111")
 
     with tabs[1]:
         col1, col2 = st.columns(2)
         with col1:
             st.session_state.design_pressure = st.number_input("Design Pressure (psi)", min_value=0.0, max_value=20000.0, value=st.session_state.design_pressure, step=10.0)
-        with col2:
             st.session_state.shut_in_pressure = st.number_input("Shut-in Pressure (psi)", min_value=0.0, max_value=20000.0, value=st.session_state.shut_in_pressure, step=10.0)
-        st.caption("Governing internal pressure = max(design, shut-in).")
+        with col2:
+            st.session_state.shut_in_location = st.selectbox("Shut-in Pressure Location", ["Subsea Wellhead", "Top of Riser"], index=["Subsea Wellhead", "Top of Riser"].index(st.session_state.shut_in_location))
+            st.caption("Subsea Wellhead: Use design pressure for operation\nTop of Riser: Use max(design, shut-in)")
 
     with tabs[2]:
         st.session_state.water_depth = st.number_input("Water Depth (m)", min_value=0.0, max_value=4000.0, value=st.session_state.water_depth, step=10.0)
-        st.caption("External pressure uses seawater density 64 lb/ft³ and depth × 3.28084 ft/m.")
+        st.caption(f"External pressure: {DEFAULT_WATER_DENSITY} lb/ft³ seawater density × depth × 3.28084 ft/m / 144")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_reference_section():
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    with st.expander("Team 8 Reference (for manual use only)", expanded=False):
-        st.write("Click a button to pre-fill the form. You can modify any value after loading.")
+    with st.expander("Team 8 Reference Data (Auto-Load)", expanded=False):
+        st.write("Click a button to automatically load Team 8 data into the form. Modify values after loading if needed.")
         cols = st.columns(2)
-        if cols[0].button("Load Gas Riser (ID 3)"):
+        if cols[0].button("🔄 Load Gas Riser (ID 3)", use_container_width=True):
             apply_reference("Gas Riser (ID 3)")
-        if cols[1].button("Load Oil Riser (ID 8)"):
+            st.rerun()
+        if cols[1].button("🔄 Load Oil Riser (ID 8)", use_container_width=True):
             apply_reference("Oil Riser (ID 8)")
-        st.json(TEAM8_REFERENCE, expanded=False)
+            st.rerun()
+        
+        st.markdown("**Reference Values:**")
+        df_ref = pd.DataFrame({
+            "Parameter": ["OD (in)", "WT (in)", "Grade", "Design P (psi)", "Shut-in P (psi)", "Depth (m)", "Fluid Type", "SG"],
+            "Gas Riser (ID 3)": [20.0, 0.750, "X-52", 250, 211, 700, "Gas", 0.05],
+            "Oil Riser (ID 8)": [8.63, 0.500, "X-52", 195, 230, 960, "Oil", 0.82],
+        })
+        st.dataframe(df_ref, use_container_width=True, hide_index=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 def build_verification_notes(pipe: PipeProperties, load: LoadingCondition, result: Dict[str, Any]) -> List[str]:
+    """Build automated verification warnings"""
     notes: List[str] = []
     d_over_t = pipe.od_in / max(pipe.wt_in, 1e-6)
-    if pipe.wt_in <= pipe.corrosion_allowance_in:
-        notes.append("Corrosion allowance exceeds or matches wall thickness.")
+    
+    # Check operation condition WT
+    op_wt = result["conditions"]["operation"]["wt_effective"]
+    if op_wt < 0.1:
+        notes.append(f"⚠️ Operation WT very thin ({op_wt:.4f} in) after corrosion and mill tolerance")
+    
     if d_over_t > 120:
-        notes.append("High D/t ratio; check ovality and fabrication tolerances.")
+        notes.append(f"⚠️ High D/t ratio ({d_over_t:.1f}); check fabrication tolerances")
+    
     if load.shut_in_pressure_psi > load.design_pressure_psi * 1.5:
-        notes.append("Shut-in pressure is more than 1.5× design; confirm well control assumptions.")
+        notes.append("⚠️ Shut-in pressure > 1.5× design; confirm well control assumptions")
+    
     if pipe.fluid_sg < 0.02 or pipe.fluid_sg > 1.2:
-        notes.append("Fluid specific gravity is outside typical range; validate input.")
-    if pipe.corrosion_allowance_in > 0.25:
-        notes.append("Corrosion allowance > 0.25 in; verify design life assumptions.")
-    if result["limiting"]["safety_factor"] < 1.0:
-        notes.append("Limiting check below SF 1.0; review governing load case or material grade.")
+        notes.append(f"⚠️ Fluid SG ({pipe.fluid_sg}) outside typical range")
+    
+    # Check if any condition fails
+    for cond_name, cond in result["conditions"].items():
+        if not cond["all_pass"]:
+            notes.append(f"❌ {cond_name.capitalize()} condition fails")
+    
     return notes
 
 
-def render_check_details(checks: List[Dict[str, Any]], p_internal: float, p_external: float, wt_eff: float):
-    for chk in checks:
-        with st.expander(f"{chk['name']} – SF {chk['safety_factor']:.2f}"):
-            st.markdown(status_pill("PASS" if chk["pass_fail"] else "FAIL", chk["pass_fail"]), unsafe_allow_html=True)
-            if chk["name"] == "Burst":
-                st.write(f"Design ΔP (Pi-Po): {chk['details']['delta_p']:.2f} psi")
-                st.write(f"Allowable (fd·fe·ft·Pb): {(chk['details']['design_factor']*chk['pb']):.2f} psi")
-                st.write(f"Pb: {chk['pb']:.2f} psi | fd={chk['details']['design_factor']}, fe={chk['details']['joint_factor']}, ft={chk['details']['temperature_factor']}")
-            elif chk["name"] == "Collapse":
-                st.write(f"Design ΔP (Po-Pi): {chk['details']['delta_p']:.2f} psi")
-                st.write(f"Py={chk['py']:.2f} psi | Pe={chk['pe']:.2f} psi | Pc={chk['pc']:.2f} psi | f_o={chk['collapse_factor']}")
-            elif chk["name"] == "Propagation":
-                st.write(f"Design ΔP (Po-Pi): {chk['details']['delta_p']:.2f} psi")
-                st.write(f"Pp={chk['pp']:.2f} psi | fp={chk['design_factor']}")
-            elif chk["name"] == "Hoop Stress":
-                st.write(f"Hoop Stress: {chk['hoop_stress']:.2f} psi | Allowable: {chk['allowable']:.2f} psi | F={chk['design_factor']}")
-            st.caption(f"Effective WT used: {wt_eff:.4f} in | Pi={p_internal:.2f} psi | Po={p_external:.2f} psi")
+def render_condition_results(cond_name: str, cond_result: Dict[str, Any]):
+    """Render one life cycle condition results"""
+    st.markdown(f"### {cond_name.capitalize()} Condition")
+    
+    status_html = status_pill("PASS" if cond_result["all_pass"] else "FAIL", cond_result["all_pass"])
+    st.markdown(f"Status: {status_html}", unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Nominal WT", f"{cond_result['wt_nominal']:.4f} in")
+    col2.metric("Effective WT", f"{cond_result['wt_effective']:.4f} in")
+    col3.metric("Pi", f"{cond_result['p_internal_psi']:.0f} psi")
+    col4.metric("Po", f"{cond_result['p_external_psi']:.0f} psi")
+    
+    # Adjustments applied
+    adjustments = []
+    if cond_result["mill_tolerance_applied"]:
+        adjustments.append("Mill Tolerance (×0.875)")
+    if cond_result["corrosion_applied"]:
+        adjustments.append(f"Corrosion ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in)")
+    st.caption("Applied: " + ", ".join(adjustments) if adjustments else "Applied: None (nominal WT)")
+    
+    # Checks table
+    table_records = []
+    for chk in cond_result["checks"]:
+        util_pct = 0 if chk["safety_factor"] == float("inf") else round(100 / chk["safety_factor"], 1)
+        table_records.append({
+            "Check": chk["name"],
+            "Safety Factor": f"{chk['safety_factor']:.2f}" if chk["safety_factor"] != float("inf") else "∞",
+            "Utilization (%)": util_pct,
+            "Status": "PASS" if chk["pass_fail"] else "FAIL",
+        })
+    df = pd.DataFrame(table_records)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # Limiting check
+    st.info(f"Limiting: **{cond_result['limiting']['name']}** with SF = {cond_result['limiting']['safety_factor']:.2f}")
 
 
 def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCondition):
-    checks = result["checks"]
-    limiting = result["limiting"]
-    all_pass = result["all_pass"]
-    p_internal = result["inputs"]["p_internal_governing"]
-    p_external = result["inputs"]["p_external"]
-    wt_eff = result["inputs"]["wt_effective"]
-
+    """Render complete results with all three life cycle conditions"""
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    tabs = st.tabs(["Summary", "Check Details", "Standard Thicknesses", "Inputs & Verification"])
+    
+    tabs = st.tabs(["Summary", "Installation", "Hydrotest", "Operation", "Standard Thicknesses", "Verification"])
 
     with tabs[0]:
-        st.subheader("Results Overview")
-        status_html = status_pill("PASS" if all_pass else "FAIL", all_pass)
-        st.markdown(f"Overall Status: {status_html}", unsafe_allow_html=True)
-        st.markdown(f"Limiting Check: **{limiting['name']}** | SF = {limiting['safety_factor']:.2f}")
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Outer Diameter (in)", f"{pipe.od_in:.2f}")
-        col2.metric("Wall Thickness (in)", f"{pipe.wt_in:.3f}")
-        col3.metric("Water Depth (m)", f"{load.water_depth_m:.0f}")
-
-        chips = [
-            info_chip("Grade", pipe.grade),
-            info_chip("Type", pipe.manufacturing),
-            info_chip("Fluid", pipe.fluid_type),
-            info_chip("Design Category", pipe.design_category),
-        ]
-        st.markdown(" ".join(chips), unsafe_allow_html=True)
-
-        table_records = []
-        for chk in checks:
-            util_pct = 0 if chk["safety_factor"] == float("inf") else round(100 / chk["safety_factor"], 1)
-            table_records.append({
-                "Check": chk["name"],
-                "Safety Factor": chk["safety_factor"],
-                "Utilization (%)": util_pct,
-                "Status": "PASS" if chk["pass_fail"] else "FAIL",
+        st.subheader("Life Cycle Analysis Summary")
+        
+        all_pass = result["all_conditions_pass"]
+        status_html = status_pill("ALL CONDITIONS PASS" if all_pass else "SOME CONDITIONS FAIL", all_pass)
+        st.markdown(f"Overall: {status_html}", unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Summary table
+        summary_records = []
+        for cond_name in ["installation", "hydrotest", "operation"]:
+            cond = result["conditions"][cond_name]
+            summary_records.append({
+                "Condition": cond_name.capitalize(),
+                "Effective WT (in)": f"{cond['wt_effective']:.4f}",
+                "Pi (psi)": f"{cond['p_internal_psi']:.0f}",
+                "Po (psi)": f"{cond['p_external_psi']:.0f}",
+                "Limiting Check": cond["limiting"]["name"],
+                "Min SF": f"{cond['limiting']['safety_factor']:.2f}" if cond["limiting"]["safety_factor"] != float("inf") else "∞",
+                "Status": "PASS" if cond["all_pass"] else "FAIL",
             })
-        df = pd.DataFrame(table_records)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        df_summary = pd.DataFrame(summary_records)
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+        
+        if all_pass:
+            st.success("✅ The selected wall thickness satisfies all design criteria for all life cycle conditions.")
+        else:
+            st.error("❌ Wall thickness does NOT meet all criteria. Review failed conditions and consider increasing thickness.")
 
     with tabs[1]:
-        st.subheader("Detailed Checks")
-        render_check_details(checks, p_internal, p_external, wt_eff)
+        render_condition_results("Installation", result["conditions"]["installation"])
+        st.info("Installation: Empty pipe (Pi=0), external pressure + bending during lay. Uses mill tolerance only.")
 
     with tabs[2]:
+        render_condition_results("Hydrotest", result["conditions"]["hydrotest"])
+        st.info(f"Hydrotest: Internal pressure = {HYDROTEST_FACTOR}× design pressure. Uses mill tolerance only.")
+
+    with tabs[3]:
+        render_condition_results("Operation", result["conditions"]["operation"])
+        st.info(f"Operation: Design pressures with mill tolerance AND {DESIGN_LIFE_YEARS}-year corrosion ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in total).")
+
+    with tabs[4]:
         st.subheader("Standard Thickness Evaluation (ASME B36.10)")
         df_std = evaluate_standard_thicknesses(pipe, load)
         if df_std.empty:
@@ -604,22 +807,40 @@ def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCo
             passing = df_std[df_std["Status"] == "PASS"]
             if not passing.empty:
                 first_pass = passing.iloc[0]
-                st.info(
-                    f"Least passing thickness: {first_pass['WT (in)']:.4f} in (Sch. {first_pass['Schedule']}), "
-                    f"limiting {first_pass['Limiting Check']} with SF {first_pass['Safety Factor']:.2f}."
+                st.success(
+                    f"✅ Least passing thickness: **{first_pass['WT (in)']:.4f} in** (Schedule: {first_pass['Schedule']})"
                 )
+                st.info(
+                    f"Limiting: {first_pass['Limiting Condition']} - {first_pass['Limiting Check']} with SF {first_pass['Safety Factor']:.2f}"
+                )
+                
+                # Find closest standard >= input WT
+                closest_wt, closest_sch = find_closest_passing_standard_wt(pipe, load, pipe.wt_in)
+                if closest_wt:
+                    if closest_wt == pipe.wt_in:
+                        st.success(f"✅ Input WT ({pipe.wt_in:.4f} in) matches standard thickness (Sch. {closest_sch}) and passes all conditions.")
+                    else:
+                        st.info(f"📊 Closest standard thickness ≥ input ({pipe.wt_in:.4f} in): **{closest_wt:.4f} in** (Sch. {closest_sch})")
+                else:
+                    st.warning(f"⚠️ {closest_sch}")
             else:
-                st.error("No standard thickness meets all checks. Consider increasing OD, grade, or reducing pressures.")
+                st.error("❌ No standard thickness meets all criteria. Consider:")
+                st.markdown("- Increasing pipe grade (X-60, X-65)")
+                st.markdown("- Reducing design/shut-in pressures")
+                st.markdown("- Decreasing water depth")
+                st.markdown("- Using custom (non-standard) wall thickness")
 
-    with tabs[3]:
-        st.subheader("Inputs & Verification")
-        st.markdown("Automated verification highlights potential data issues. Review before finalizing.")
-        st.json(result["inputs"], expanded=False)
+    with tabs[5]:
+        st.subheader("Input Verification")
         notes = build_verification_notes(pipe, load, result)
         if notes:
-            st.warning("\n".join(notes))
+            for note in notes:
+                st.warning(note)
         else:
-            st.success("No data range flags detected. Inputs look consistent with typical design values.")
+            st.success("✅ All inputs within typical design ranges. No flags detected.")
+        
+        with st.expander("Detailed Input Summary", expanded=False):
+            st.json({"pipe": result["pipe"], "loading": result["loading"]}, expanded=False)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -638,18 +859,23 @@ def main():
     render_reference_section()
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    if st.button("Calculate", type="primary", use_container_width=True):
+    if st.button("🔍 Calculate All Life Cycle Conditions", type="primary", use_container_width=True):
         pipe, load = build_pipe_and_load()
-        calculator = RiserCalculator(pipe, load)
-        result = calculator.run_all()
+        analyzer = LifeCycleAnalyzer(pipe, load)
+        result = analyzer.run_all_conditions()
 
         render_results(result, pipe, load)
     else:
-        st.info("Enter all values manually, then click Calculate. Use Team 8 buttons only to pre-fill the form.")
+        st.info("📝 Enter all design parameters manually, then click Calculate. Use Team 8 auto-load buttons for quick reference data entry.")
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("Built for API RP 1111 burst/collapse/propagation and ASME B31.4/B31.8 hoop checks. Safety factors target ≥ 1.0.")
+    st.caption(
+        f"API RP 1111 (3rd Ed 1999) + ASME B31.4/B31.8 | "
+        f"Mill Tolerance: {MILL_TOLERANCE*100}% | "
+        f"Corrosion: {CORROSION_RATE_PER_YEAR} in/year × {DESIGN_LIFE_YEARS} years | "
+        f"Hydrotest Factor: {HYDROTEST_FACTOR}×"
+    )
 
 
 if __name__ == "__main__":
