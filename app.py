@@ -49,15 +49,15 @@ HYDROTEST_FACTOR = 1.25
 
 TEAM8_REFERENCE = {
     "Gas Riser (ID 3)": {
-        "od": 20.0,
+        "od": 16.0,
         "wt": 0.750,
         "grade": "X-52",
-        "design_pressure": 250.0,  # Design pressure
-        "shut_in_pressure": 211.0,  # Shut-in at subsea wellhead
+        "design_pressure": 1400.0,  # Design pressure
+        "shut_in_pressure": 1236.0,  # Shut-in at subsea wellhead
         "shut_in_location": "Subsea Wellhead",
-        "water_depth": 700.0,
-        "fluid_type": "Gas",
-        "fluid_sg": 0.05,
+        "water_depth": 920.0,
+        "fluid_type": "Multiphase",
+        "fluid_sg": 0.57,
         "manufacturing": "SMLS",
         "design_category": "Riser",
         "ovality_type": "Other Type",
@@ -67,8 +67,8 @@ TEAM8_REFERENCE = {
         "od": 8.63,
         "wt": 0.500,
         "grade": "X-52",
-        "design_pressure": 195.0,
-        "shut_in_pressure": 230.0,
+        "design_pressure": 230.0,
+        "shut_in_pressure": 195.0,
         "shut_in_location": "Subsea Wellhead",
         "water_depth": 960.0,
         "fluid_type": "Oil",
@@ -677,8 +677,8 @@ def render_reference_section():
         st.markdown("**Reference Values:**")
         df_ref = pd.DataFrame({
             "Parameter": ["OD (in)", "WT (in)", "Grade", "Design P (psi)", "Shut-in P (psi)", "Depth (m)", "Fluid Type", "SG"],
-            "Gas Riser (ID 3)": [20.0, 0.750, "X-52", 250, 211, 700, "Gas", 0.05],
-            "Oil Riser (ID 8)": [8.63, 0.500, "X-52", 195, 230, 960, "Oil", 0.82],
+            "Gas Riser (ID 3)": [16.0, 0.750, "X-52", 1400, 1236, 920, "Multiphase", 0.57],
+            "Oil Riser (ID 8)": [8.63, 0.500, "X-52", 230, 195, 960, "Oil", 0.82],
         })
         st.dataframe(df_ref, use_container_width=True, hide_index=True)
     st.markdown("</div>", unsafe_allow_html=True)
