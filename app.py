@@ -16,6 +16,7 @@ import pandas as pd
 import streamlit as st
 
 import asme_b36_10
+import calcs_weight
 
 # -----------------------------------------------------------------------------
 # Constants and reference data
@@ -289,6 +290,14 @@ class LifeCycleAnalyzer:
         """Analyze one life cycle condition"""
         p_external = self.external_pressure_psi()
         wt_eff = self.effective_wall_thickness(use_mill_tolerance, use_corrosion)
+        
+        # Calculate pipe weights for this condition
+        weights = calcs_weight.calculate_pipe_weights(
+            od_inches=self.pipe.od_in,
+            wt_inches=wt_eff,  # Use effective WT for this condition
+            fluid_sg=self.pipe.fluid_sg,
+            use_seawater=True
+        )
 
         burst = self.compute_burst(p_internal, p_external, wt_eff)
         collapse = self.compute_collapse(p_internal, p_external, wt_eff)
@@ -310,6 +319,7 @@ class LifeCycleAnalyzer:
             "wt_effective": wt_eff,
             "mill_tolerance_applied": use_mill_tolerance,
             "corrosion_applied": use_corrosion,
+            "weights": weights,
             "checks": checks,
             "all_pass": all_pass,
             "limiting": limiting,
@@ -723,6 +733,26 @@ def render_condition_results(cond_name: str, cond_result: Dict[str, Any]):
     col2.metric("Effective WT", f"{cond_result['wt_effective']:.4f} in")
     col3.metric("Pi", f"{cond_result['p_internal_psi']:.0f} psi")
     col4.metric("Po", f"{cond_result['p_external_psi']:.0f} psi")
+    
+    # Display pipe weights
+    st.markdown("#### Pipe Weights (per API RP 1111 Appendix A)")
+    weights = cond_result["weights"]
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("**Empty Pipe:**")
+        st.write(f"Dry: {weights['void_dry_weight_plf']:.2f} lb/ft")
+        st.write(f"Submerged: {weights['void_submerged_weight_plf']:.2f} lb/ft")
+    with col2:
+        st.markdown("**Flooded (Water):**")
+        st.write(f"Dry: {weights['flooded_dry_weight_plf']:.2f} lb/ft")
+        st.write(f"Submerged: {weights['flooded_submerged_weight_plf']:.2f} lb/ft")
+    with col3:
+        st.markdown("**Product-Filled:**")
+        st.write(f"Dry: {weights['product_filled_dry_weight_plf']:.2f} lb/ft")
+        st.write(f"Submerged: {weights['product_filled_submerged_weight_plf']:.2f} lb/ft")
+    
+    st.caption(f"Pipe Specific Gravity: {weights['pipe_specific_gravity']:.2f} | Steel: {weights['steel_density_pcf']:.0f} pcf | Water: {weights['water_density_pcf']:.0f} pcf")
     
     # Adjustments applied
     adjustments = []
