@@ -259,14 +259,9 @@ class LifeCycleAnalyzer:
         # Get longitudinal load results
         longitudinal = self.calculate_longitudinal_load(wt_eff, p_internal, condition_name)
         
-        # Get burst pressure (use existing burst calculation)
-        burst_result = calcs_burst.calculate_burst(
-            od=self.pipe.od_in,
-            wt=wt_eff,
-            smys=self.pipe.smys_psi,
-            design_category=self.pipe.design_category,
-        )
-        p_b = burst_result["allowable_pressure"]
+        # Get burst pressure using class method
+        burst_result = self.compute_burst(p_internal, p_external, wt_eff)
+        p_b = burst_result["pb"]  # Burst pressure capacity
         
         # Differential pressure (positive = burst, negative = collapse)
         p_diff = p_internal - p_external
