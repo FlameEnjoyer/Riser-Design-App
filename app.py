@@ -264,7 +264,7 @@ class LifeCycleAnalyzer:
             od=self.pipe.od_in,
             wt=wt_eff,
             smys=self.pipe.smys_psi,
-            design_category=self.load.design_category,
+            design_category=self.pipe.design_category,
         )
         p_b = burst_result["allowable_pressure"]
         
