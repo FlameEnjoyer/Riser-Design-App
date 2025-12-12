@@ -115,6 +115,7 @@ class LoadingCondition:
     shut_in_pressure_psi: float
     shut_in_location: str  # "Subsea Wellhead" or "Top of Riser"
     water_depth_m: float
+    riser_length_m: float  # For longitudinal tension calculation
 
 
 # -----------------------------------------------------------------------------
@@ -135,6 +136,192 @@ class LifeCycleAnalyzer:
         """Calculate hydrostatic external pressure"""
         depth_ft = self._ft_from_m(self.load.water_depth_m)
         return DEFAULT_WATER_DENSITY * depth_ft / 144.0
+    
+    def calculate_longitudinal_load(self, wt_eff: float, p_internal: float, 
+                                     condition_name: str) -> Dict[str, Any]:
+        """
+        Calculate longitudinal tension per API RP 1111 Section 4.3.1.1
+        
+        Longitudinal Load Design:
+        T_eff = T_a - P_i × A_i + P_o × A_o
+        
+        Acceptance Criterion:
+        T_eff ≤ 0.60 × T_y
+        
+        Where:
+        - T_a: Applied axial tension from self-weight (lb)
+        - T_eff: Effective tension accounting for pressure end-cap forces
+        - T_y: Yield tension = SMYS × A_steel
+        - P_i: Internal pressure
+        - P_o: External pressure
+        - A_i: Internal cross-sectional area
+        - A_o: External cross-sectional area
+        """
+        p_external = self.external_pressure_psi()
+        
+        # Calculate cross-sectional areas (in²)
+        od = self.pipe.od_in
+        id_val = od - 2 * wt_eff
+        
+        a_outer = math.pi / 4 * od**2  # External area
+        a_inner = math.pi / 4 * id_val**2  # Internal area
+        a_steel = a_outer - a_inner  # Steel cross-section
+        
+        # Calculate pipe weights using effective WT
+        weights = calcs_weight.calculate_pipe_weights(
+            od_inches=od,
+            wt_inches=wt_eff,
+            fluid_sg=self.pipe.fluid_sg,
+            use_seawater=True
+        )
+        
+        # Applied tension T_a from self-weight
+        # For vertical riser, T_a = void_submerged_weight × length
+        # This represents the tension at the top needed to support the riser
+        riser_length_ft = self._ft_from_m(self.load.riser_length_m)
+        void_submerged_plf = weights['void_submerged_weight_plf']
+        
+        t_a_lb = void_submerged_plf * riser_length_ft  # Applied tension (lb)
+        
+        # Pressure end-cap forces
+        # Internal pressure creates upward force (reduces tension)
+        # External pressure creates downward force (increases tension)
+        force_internal_lb = p_internal * a_inner  # lb (reduces tension)
+        force_external_lb = p_external * a_outer  # lb (increases tension)
+        
+        # Effective tension (lb)
+        t_eff_lb = t_a_lb - force_internal_lb + force_external_lb
+        
+        # Yield tension (lb)
+        t_y_lb = self.pipe.smys_psi * a_steel
+        
+        # Allowable tension per API RP 1111: 0.60 × T_y
+        allowable_tension_lb = 0.60 * t_y_lb
+        
+        # Safety factor
+        if t_eff_lb <= 0:
+            # Compression case (not covered by this check)
+            safety_factor = float('inf')
+            passes = True
+            status = "Compression (N/A)"
+        else:
+            safety_factor = allowable_tension_lb / t_eff_lb
+            passes = safety_factor >= 1.0
+            status = "PASS" if passes else "FAIL"
+        
+        # Axial stress in pipe wall (psi)
+        axial_stress_psi = t_eff_lb / a_steel if a_steel > 0 else 0
+        
+        return {
+            "condition": condition_name,
+            "t_a_applied_lb": t_a_lb,
+            "t_a_applied_kips": t_a_lb / 1000,
+            "force_internal_lb": force_internal_lb,
+            "force_external_lb": force_external_lb,
+            "t_eff_effective_lb": t_eff_lb,
+            "t_eff_effective_kips": t_eff_lb / 1000,
+            "t_y_yield_lb": t_y_lb,
+            "t_y_yield_kips": t_y_lb / 1000,
+            "allowable_tension_lb": allowable_tension_lb,
+            "allowable_tension_kips": allowable_tension_lb / 1000,
+            "axial_stress_psi": axial_stress_psi,
+            "axial_stress_ksi": axial_stress_psi / 1000,
+            "safety_factor": safety_factor,
+            "passes": passes,
+            "status": status,
+            "criterion": "T_eff ≤ 0.60 × T_y (API RP 1111 Section 4.3.1.1)",
+            "a_outer_in2": a_outer,
+            "a_inner_in2": a_inner,
+            "a_steel_in2": a_steel,
+            "void_submerged_plf": void_submerged_plf,
+            "riser_length_ft": riser_length_ft,
+        }
+    
+    def calculate_combined_load(self, wt_eff: float, p_internal: float,
+                                 condition_name: str) -> Dict[str, Any]:
+        """
+        Calculate combined loading per API RP 1111 Section 4.3.1.2
+        
+        Combined Load Design:
+        √[(P_i - P_o)² / P_b²] + (T_eff / T_y)² ≤ Design Factor
+        
+        Design Factors:
+        - 0.90 for operational loads
+        - 0.96 for extreme loads (storm, earthquake)
+        - 0.96 for hydrotest loads
+        
+        This is the most comprehensive check that combines:
+        1. Pressure loading (burst/collapse)
+        2. Longitudinal tension (from weight and pressure end-caps)
+        """
+        p_external = self.external_pressure_psi()
+        
+        # Get longitudinal load results
+        longitudinal = self.calculate_longitudinal_load(wt_eff, p_internal, condition_name)
+        
+        # Get burst pressure (use existing burst calculation)
+        burst_result = calcs_burst.calculate_burst(
+            od=self.pipe.od_in,
+            wt=wt_eff,
+            smys=self.pipe.smys_psi,
+            design_category=self.load.design_category,
+        )
+        p_b = burst_result["allowable_pressure"]
+        
+        # Differential pressure (positive = burst, negative = collapse)
+        p_diff = p_internal - p_external
+        
+        # Pressure component: (P_i - P_o) / P_b
+        # For collapse cases (negative p_diff), we still use absolute value
+        # per API RP 1111 interpretation
+        pressure_component = (p_diff / p_b) if p_b > 0 else 0
+        
+        # Tension component: T_eff / T_y
+        t_eff = longitudinal["t_eff_effective_lb"]
+        t_y = longitudinal["t_y_yield_lb"]
+        tension_component = (t_eff / t_y) if t_y > 0 else 0
+        
+        # Combined load ratio
+        combined_ratio = math.sqrt(pressure_component**2 + tension_component**2)
+        
+        # Determine design factor based on condition
+        if condition_name == "Operation":
+            design_factor = 0.90  # Operational loads
+            factor_description = "0.90 (Operational)"
+        elif condition_name == "Hydrotest":
+            design_factor = 0.96  # Hydrotest loads
+            factor_description = "0.96 (Hydrotest)"
+        else:  # Installation
+            design_factor = 0.96  # Extreme loads (conservative)
+            factor_description = "0.96 (Extreme)"
+        
+        # Safety factor (design_factor / combined_ratio)
+        if combined_ratio > 0:
+            safety_factor = design_factor / combined_ratio
+        else:
+            safety_factor = float('inf')
+        
+        passes = combined_ratio <= design_factor
+        status = "PASS" if passes else "FAIL"
+        
+        return {
+            "condition": condition_name,
+            "p_internal_psi": p_internal,
+            "p_external_psi": p_external,
+            "p_diff_psi": p_diff,
+            "p_b_burst_psi": p_b,
+            "pressure_component": pressure_component,
+            "t_eff_lb": t_eff,
+            "t_y_lb": t_y,
+            "tension_component": tension_component,
+            "combined_ratio": combined_ratio,
+            "design_factor": design_factor,
+            "factor_description": factor_description,
+            "safety_factor": safety_factor,
+            "passes": passes,
+            "status": status,
+            "criterion": f"√[(P/Pb)² + (T/Ty)²] ≤ {design_factor} (API RP 1111 Section 4.3.1.2)",
+        }
 
     def effective_wall_thickness(self, use_mill_tolerance: bool, use_corrosion: bool) -> float:
         """
@@ -303,13 +490,20 @@ class LifeCycleAnalyzer:
         collapse = self.compute_collapse(p_internal, p_external, wt_eff)
         propagation = self.compute_propagation(p_internal, p_external, wt_eff)
         hoop = self.compute_hoop(p_internal, p_external, wt_eff)
+        
+        # NEW: Calculate longitudinal tension (Section 4.3.1.1)
+        longitudinal = self.calculate_longitudinal_load(wt_eff, p_internal, condition_name)
+        
+        # NEW: Calculate combined loading (Section 4.3.1.2)
+        combined = self.calculate_combined_load(wt_eff, p_internal, condition_name)
 
         checks = [burst, collapse, propagation, hoop]
         limiting = min(
             checks,
             key=lambda c: c["safety_factor"] if c["safety_factor"] != float("inf") else float("inf"),
         )
-        all_pass = all(c["pass_fail"] for c in checks)
+        # Update all_pass to include longitudinal and combined checks
+        all_pass = all(c["pass_fail"] for c in checks) and longitudinal["passes"] and combined["passes"]
 
         return {
             "condition_name": condition_name,
@@ -321,6 +515,8 @@ class LifeCycleAnalyzer:
             "corrosion_applied": use_corrosion,
             "weights": weights,
             "checks": checks,
+            "longitudinal": longitudinal,
+            "combined": combined,
             "all_pass": all_pass,
             "limiting": limiting,
         }
@@ -558,8 +754,8 @@ def render_hero():
 
 
 def initialize_state():
-    """Initialize session state with Gas Riser defaults"""
-    defaults = TEAM8_REFERENCE["Gas Riser (ID 3)"]
+    """Initialize session state with Multiphase Riser defaults"""
+    defaults = TEAM8_REFERENCE["Multiphase Riser (ID 3)"]
     for key, value in {
         "od_in": defaults["od"],
         "wt_in": defaults["wt"],
@@ -567,6 +763,7 @@ def initialize_state():
         "shut_in_pressure": defaults["shut_in_pressure"],
         "shut_in_location": defaults["shut_in_location"],
         "water_depth": defaults["water_depth"],
+        "riser_length": defaults["water_depth"],  # Initialize with water depth
         "fluid_sg": defaults["fluid_sg"],
         "grade": defaults["grade"],
         "manufacturing": defaults["manufacturing"],
@@ -587,6 +784,7 @@ def apply_reference(name: str):
     st.session_state.shut_in_pressure = ref["shut_in_pressure"]
     st.session_state.shut_in_location = ref["shut_in_location"]
     st.session_state.water_depth = ref["water_depth"]
+    st.session_state.riser_length = ref["water_depth"]  # Default to water depth
     st.session_state.fluid_sg = ref["fluid_sg"]
     st.session_state.grade = ref["grade"]
     st.session_state.manufacturing = ref["manufacturing"]
@@ -625,6 +823,7 @@ def build_pipe_and_load() -> Tuple[PipeProperties, LoadingCondition]:
         shut_in_pressure_psi=st.session_state.shut_in_pressure,
         shut_in_location=st.session_state.shut_in_location,
         water_depth_m=st.session_state.water_depth,
+        riser_length_m=st.session_state.get("riser_length", st.session_state.water_depth),
     )
     return pipe, load
 
@@ -662,8 +861,10 @@ def render_input_sections():
             st.caption("Subsea Wellhead: Use design pressure for operation\nTop of Riser: Use max(design, shut-in)")
 
     with tabs[2]:
-        st.session_state.water_depth = st.number_input("Water Depth (m)", min_value=0.0, max_value=4000.0, value=st.session_state.water_depth, step=10.0)
+        st.session_state.water_depth = st.number_input("💧 Water Depth (m)", min_value=0.0, max_value=4000.0, value=st.session_state.water_depth, step=10.0, help="Kedalam Laut / Depth for external pressure calculation")
+        st.session_state.riser_length = st.number_input("📏 Riser Length (m)", min_value=0.0, max_value=4000.0, value=st.session_state.get("riser_length", st.session_state.water_depth), step=10.0, help="Vertical riser length for longitudinal tension calculation (typically equals water depth)")
         st.caption(f"External pressure: {DEFAULT_WATER_DENSITY} lb/ft³ seawater density × depth × 3.28084 ft/m / 144")
+        st.caption("Note: Riser length affects applied tension T_a = void_submerged_weight × length")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -673,8 +874,8 @@ def render_reference_section():
     with st.expander("Team 8 Reference Data (Auto-Load)", expanded=False):
         st.write("Click a button to automatically load Team 8 data into the form. Modify values after loading if needed.")
         cols = st.columns(2)
-        if cols[0].button("🔄 Load Gas Riser (ID 3)", use_container_width=True):
-            apply_reference("Gas Riser (ID 3)")
+        if cols[0].button("🔄 Load Multiphase Riser (ID 3)", use_container_width=True):
+            apply_reference("Multiphase Riser (ID 3)")
             st.rerun()
         if cols[1].button("🔄 Load Oil Riser (ID 8)", use_container_width=True):
             apply_reference("Oil Riser (ID 8)")
@@ -768,8 +969,67 @@ def render_condition_results(cond_name: str, cond_result: Dict[str, Any]):
             "Utilization (%)": util_pct,
             "Status": "PASS" if chk["pass_fail"] else "FAIL",
         })
+    
+    # Add longitudinal tension check
+    long_check = cond_result["longitudinal"]
+    long_util = 0 if long_check["safety_factor"] == float("inf") else round(100 / long_check["safety_factor"], 1)
+    table_records.append({
+        "Check": "Longitudinal Tension",
+        "Safety Factor": f"{long_check['safety_factor']:.2f}" if long_check["safety_factor"] != float("inf") else "∞",
+        "Utilization (%)": long_util,
+        "Status": long_check["status"],
+    })
+    
+    # Add combined loading check
+    comb_check = cond_result["combined"]
+    comb_util = 0 if comb_check["safety_factor"] == float("inf") else round(100 / comb_check["safety_factor"], 1)
+    table_records.append({
+        "Check": "Combined Loading",
+        "Safety Factor": f"{comb_check['safety_factor']:.2f}" if comb_check["safety_factor"] != float("inf") else "∞",
+        "Utilization (%)": comb_util,
+        "Status": comb_check["status"],
+    })
+    
     df = pd.DataFrame(table_records)
     st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # Detailed information for new checks
+    with st.expander("📊 Longitudinal Tension Details (API RP 1111 Section 4.3.1.1)"):
+        st.markdown(f"""
+        **Applied Tension (T_a):** {long_check['t_a_applied_kips']:.2f} kips ({long_check['t_a_applied_lb']:.0f} lb)  
+        *From self-weight: {long_check['void_submerged_plf']:.2f} lb/ft × {long_check['riser_length_ft']:.0f} ft*
+        
+        **Pressure End-Cap Forces:**
+        - Internal (P_i × A_i): {long_check['force_internal_lb']/1000:.2f} kips (reduces tension)
+        - External (P_o × A_o): {long_check['force_external_lb']/1000:.2f} kips (increases tension)
+        
+        **Effective Tension (T_eff):** {long_check['t_eff_effective_kips']:.2f} kips  
+        *T_eff = T_a - P_i×A_i + P_o×A_o*
+        
+        **Yield Tension (T_y):** {long_check['t_y_yield_kips']:.2f} kips  
+        *T_y = SMYS × A_steel = {cond_result["checks"][0].get("smys", "N/A")} psi × {long_check['a_steel_in2']:.2f} in²*
+        
+        **Allowable (0.60 × T_y):** {long_check['allowable_tension_kips']:.2f} kips
+        
+        **Axial Stress:** {long_check['axial_stress_ksi']:.2f} ksi  
+        **Criterion:** T_eff ≤ 0.60 × T_y (per API RP 1111 Section 4.3.1.1)
+        """)
+    
+    with st.expander("🔄 Combined Loading Details (API RP 1111 Section 4.3.1.2)"):
+        st.markdown(f"""
+        **Formula:** √[(P/P_b)² + (T/T_y)²] ≤ Design Factor
+        
+        **Pressure Component (P/P_b):** {comb_check['pressure_component']:.4f}  
+        *P_i - P_o = {comb_check['p_diff_psi']:.0f} psi, P_b = {comb_check['p_b_burst_psi']:.0f} psi*
+        
+        **Tension Component (T/T_y):** {comb_check['tension_component']:.4f}  
+        *T_eff = {comb_check['t_eff_lb']/1000:.2f} kips, T_y = {comb_check['t_y_lb']/1000:.2f} kips*
+        
+        **Combined Ratio:** {comb_check['combined_ratio']:.4f}  
+        **Design Factor:** {comb_check['design_factor']} ({comb_check['factor_description']})
+        
+        **Status:** Combined Ratio {'≤' if comb_check['passes'] else '>'} Design Factor
+        """)
     
     # Limiting check
     st.info(f"Limiting: **{cond_result['limiting']['name']}** with SF = {cond_result['limiting']['safety_factor']:.2f}")
