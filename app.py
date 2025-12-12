@@ -49,14 +49,14 @@ MILL_TOLERANCE = 0.125  # 12.5% = wall thickness factor 0.875
 HYDROTEST_FACTOR = 1.25
 
 TEAM8_REFERENCE = {
-    "Gas Riser (ID 3)": {
+    "Multiphase Riser (ID 3)": {
         "od": 16.0,
         "wt": 0.750,
         "grade": "X-52",
-        "design_pressure": 1400.0,  # Design pressure
-        "shut_in_pressure": 1236.0,  # Shut-in at subsea wellhead
+        "design_pressure": 1400.0,  # Design pressure for sizing
+        "shut_in_pressure": 1236.0,  # Shut-in pressure = internal pressure (Pi)
         "shut_in_location": "Subsea Wellhead",
-        "water_depth": 920.0,
+        "water_depth": 920.0,  # Kedalam Laut (m)
         "fluid_type": "Multiphase",
         "fluid_sg": 0.57,
         "manufacturing": "SMLS",
@@ -68,10 +68,10 @@ TEAM8_REFERENCE = {
         "od": 8.63,
         "wt": 0.500,
         "grade": "X-52",
-        "design_pressure": 230.0,
-        "shut_in_pressure": 195.0,
+        "design_pressure": 230.0,  # Design pressure for sizing
+        "shut_in_pressure": 195.0,  # Shut-in pressure = internal pressure (Pi)
         "shut_in_location": "Subsea Wellhead",
-        "water_depth": 960.0,
+        "water_depth": 960.0,  # Kedalam Laut (m)
         "fluid_type": "Oil",
         "fluid_sg": 0.82,
         "manufacturing": "SMLS",
@@ -330,17 +330,13 @@ class LifeCycleAnalyzer:
         Analyze all three life cycle conditions:
         1. Installation: No internal pressure, mill tolerance only
         2. Hydrotest: 1.25× design pressure, mill tolerance only
-        3. Operation: Design/shut-in pressure, mill tolerance + corrosion
+        3. Operation: Shut-in pressure (internal pressure), mill tolerance + corrosion
         """
         p_external = self.external_pressure_psi()
         
-        # Determine governing internal pressure for operation
-        # If shut-in at top of riser, use shut-in pressure
-        # If shut-in at subsea wellhead, use design pressure
-        if self.load.shut_in_location == "Top of Riser":
-            p_operation = max(self.load.shut_in_pressure_psi, self.load.design_pressure_psi)
-        else:  # Subsea Wellhead
-            p_operation = self.load.design_pressure_psi
+        # Internal pressure for operation is ALWAYS the shut-in pressure
+        # Per API RP 1111, shut-in pressure is the maximum internal pressure during operation
+        p_operation = self.load.shut_in_pressure_psi
         
         # 1. Installation: Empty pipe, no internal pressure
         installation = self.analyze_condition(
