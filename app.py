@@ -15,8 +15,8 @@ from typing import Dict, Any, List, Tuple
 import pandas as pd
 import streamlit as st
 
-import asme_b36_10
-import calcs_weight
+from reference_data import asme_b36_10
+from calculations import calcs_weight
 
 # -----------------------------------------------------------------------------
 # Constants and reference data
@@ -136,37 +136,122 @@ class LifeCycleAnalyzer:
         """Calculate hydrostatic external pressure"""
         depth_ft = self._ft_from_m(self.load.water_depth_m)
         return DEFAULT_WATER_DENSITY * depth_ft / 144.0
-    
-    def calculate_longitudinal_load(self, wt_eff: float, p_internal: float, 
-                                     condition_name: str) -> Dict[str, Any]:
+
+    def external_pressure_psi_for_position(self, position: str) -> float:
+        """
+        Calculate external pressure based on riser position
+
+        Parameters:
+        -----------
+        position : str
+            "Top" or "Bottom"
+
+        Returns:
+        --------
+        float : External pressure in psi
+
+        Top Position: Atmospheric only (14.7 psi)
+        Bottom Position: Atmospheric + Hydrostatic
+
+        Physical Basis:
+        - Top of riser is at sea surface → atmospheric pressure
+        - Bottom of riser is at water depth → atmospheric + hydrostatic
+        """
+        ATMOSPHERIC_PSI = 14.7
+
+        if position.lower() == "top":
+            return ATMOSPHERIC_PSI
+        else:  # bottom
+            depth_ft = self._ft_from_m(self.load.water_depth_m)
+            hydrostatic_psi = DEFAULT_WATER_DENSITY * depth_ft / 144.0
+            return ATMOSPHERIC_PSI + hydrostatic_psi
+
+    def get_internal_pressure_for_check(self, condition_name: str, check_type: str) -> float:
+        """
+        Determine internal pressure based on condition and check type
+
+        Parameters:
+        -----------
+        condition_name : str
+            "Installation", "Hydrotest", or "Operation"
+        check_type : str
+            "burst", "collapse", "propagation", "hoop", "longitudinal", "combined"
+
+        Returns:
+        --------
+        float : Internal pressure in psi
+
+        CRITICAL LOGIC FOR OPERATION CONDITION:
+        - Uses design_pressure for: burst, hoop, longitudinal, combined
+        - Uses shut_in_pressure ONLY for: collapse, propagation
+
+        This is more conservative per user requirements:
+        - Design pressure ensures adequate burst/hoop resistance
+        - Shut-in pressure used for collapse (actual operating condition)
+
+        Rationale:
+        Design pressure represents maximum credible internal pressure for
+        sizing purposes. Shut-in pressure represents actual operating
+        condition relevant for external collapse resistance.
+        """
+        if condition_name == "Installation":
+            # Empty pipe during installation
+            return 0.0
+
+        elif condition_name == "Hydrotest":
+            # Elevated test pressure (1.25x design)
+            return self.load.design_pressure_psi * HYDROTEST_FACTOR
+
+        elif condition_name == "Operation":
+            # CRITICAL: Different pressures per check type
+            if check_type in ["collapse", "propagation"]:
+                # Collapse checks use actual operating pressure (shut-in)
+                return self.load.shut_in_pressure_psi
+            else:
+                # Burst, hoop, longitudinal, combined use design pressure
+                # for conservative sizing
+                return self.load.design_pressure_psi
+
+        return 0.0
+
+    def calculate_longitudinal_load(self, wt_eff: float, p_internal: float,
+                                     p_external: float, condition_name: str,
+                                     position: str) -> Dict[str, Any]:
         """
         Calculate longitudinal tension per API RP 1111 Section 4.3.1.1
-        
+
+        CRITICAL CHANGE: Position-dependent applied tension
+
         Longitudinal Load Design:
         T_eff = T_a - P_i × A_i + P_o × A_o
-        
+
         Acceptance Criterion:
         T_eff ≤ 0.60 × T_y
-        
+
+        Position Effects:
+        - Top: T_a = void_submerged_weight × riser_length (maximum tension)
+        - Bottom: T_a = 0 (supported by mudline/seabed)
+
         Where:
         - T_a: Applied axial tension from self-weight (lb)
         - T_eff: Effective tension accounting for pressure end-cap forces
         - T_y: Yield tension = SMYS × A_steel
-        - P_i: Internal pressure
-        - P_o: External pressure
+        - P_i: Internal pressure (position-specific)
+        - P_o: External pressure (position-specific)
         - A_i: Internal cross-sectional area
         - A_o: External cross-sectional area
+
+        BUOYANCY NOTE: void_submerged_weight already accounts for buoyancy
+        void_submerged = dry_weight - (water_density × displaced_volume)
         """
-        p_external = self.external_pressure_psi()
-        
         # Calculate cross-sectional areas (in²)
         od = self.pipe.od_in
         id_val = od - 2 * wt_eff
-        
+
         a_outer = math.pi / 4 * od**2  # External area
         a_inner = math.pi / 4 * id_val**2  # Internal area
         a_steel = a_outer - a_inner  # Steel cross-section
-        
+
         # Calculate pipe weights using effective WT
         weights = calcs_weight.calculate_pipe_weights(
             od_inches=od,
@@ -174,14 +259,20 @@ class LifeCycleAnalyzer:
             fluid_sg=self.pipe.fluid_sg,
             use_seawater=True
         )
-        
-        # Applied tension T_a from self-weight
-        # For vertical riser, T_a = void_submerged_weight × length
-        # This represents the tension at the top needed to support the riser
-        riser_length_ft = self._ft_from_m(self.load.riser_length_m)
+
+        # Applied tension T_a from self-weight - POSITION DEPENDENT
+        # BUOYANCY is accounted for in void_submerged_weight_plf
         void_submerged_plf = weights['void_submerged_weight_plf']
-        
-        t_a_lb = void_submerged_plf * riser_length_ft  # Applied tension (lb)
+
+        if position.lower() == "top":
+            # Top of riser: Full tension from entire suspended weight
+            riser_length_ft = self._ft_from_m(self.load.riser_length_m)
+            t_a_lb = void_submerged_plf * riser_length_ft
+            riser_length_ft_display = riser_length_ft
+        else:  # bottom
+            # Bottom of riser: Supported by mudline/seabed
+            t_a_lb = 0.0
+            riser_length_ft_display = 0.0
         
         # Pressure end-cap forces
         # Internal pressure creates upward force (reduces tension)
@@ -214,6 +305,7 @@ class LifeCycleAnalyzer:
         
         return {
             "condition": condition_name,
+            "position": position,
             "t_a_applied_lb": t_a_lb,
             "t_a_applied_kips": t_a_lb / 1000,
             "force_internal_lb": force_internal_lb,
@@ -234,30 +326,33 @@ class LifeCycleAnalyzer:
             "a_inner_in2": a_inner,
             "a_steel_in2": a_steel,
             "void_submerged_plf": void_submerged_plf,
-            "riser_length_ft": riser_length_ft,
+            "riser_length_ft": riser_length_ft_display,
         }
     
     def calculate_combined_load(self, wt_eff: float, p_internal: float,
-                                 condition_name: str) -> Dict[str, Any]:
+                                 p_external: float, condition_name: str,
+                                 position: str) -> Dict[str, Any]:
         """
         Calculate combined loading per API RP 1111 Section 4.3.1.2
-        
+
         Combined Load Design:
         √[(P_i - P_o)² / P_b²] + (T_eff / T_y)² ≤ Design Factor
-        
+
         Design Factors:
         - 0.90 for operational loads
         - 0.96 for extreme loads (storm, earthquake)
         - 0.96 for hydrotest loads
-        
+
+        Position affects longitudinal component through T_eff calculation.
+
         This is the most comprehensive check that combines:
         1. Pressure loading (burst/collapse)
-        2. Longitudinal tension (from weight and pressure end-caps)
+        2. Longitudinal tension (from weight and pressure end-caps, position-dependent)
         """
-        p_external = self.external_pressure_psi()
-        
-        # Get longitudinal load results
-        longitudinal = self.calculate_longitudinal_load(wt_eff, p_internal, condition_name)
+        # Get longitudinal load results with position
+        longitudinal = self.calculate_longitudinal_load(
+            wt_eff, p_internal, p_external, condition_name, position
+        )
         
         # Get burst pressure using class method
         burst_result = self.compute_burst(p_internal, p_external, wt_eff)
@@ -301,6 +396,7 @@ class LifeCycleAnalyzer:
         
         return {
             "condition": condition_name,
+            "position": position,
             "p_internal_psi": p_internal,
             "p_external_psi": p_external,
             "p_diff_psi": p_diff,
@@ -516,58 +612,184 @@ class LifeCycleAnalyzer:
             "limiting": limiting,
         }
 
+    def analyze_condition_at_position(
+        self,
+        condition_name: str,  # "Installation", "Hydrotest", "Operation"
+        position: str,        # "Top" or "Bottom"
+        use_mill_tolerance: bool,
+        use_corrosion: bool
+    ) -> Dict[str, Any]:
+        """
+        Analyze one life cycle condition at a specific riser position
+
+        This is the NEW core analysis method that replaces analyze_condition()
+        for the 6-condition analysis (3 stages × 2 positions).
+
+        Key Differences from Old Method:
+        1. Position-dependent external pressure (Po)
+        2. Check-type-dependent internal pressure (Pi) for Operation
+        3. Position-dependent axial loading (T_a)
+
+        Parameters:
+        -----------
+        condition_name : str
+            "Installation", "Hydrotest", or "Operation"
+        position : str
+            "Top" or "Bottom"
+        use_mill_tolerance : bool
+            Apply 12.5% mill tolerance to WT
+        use_corrosion : bool
+            Apply corrosion allowance to WT
+
+        Returns:
+        --------
+        Dict containing:
+        - Position-specific pressures for each check
+        - All 7 check results
+        - Overall pass/fail status
+        """
+        # Calculate position-specific external pressure
+        p_external = self.external_pressure_psi_for_position(position)
+
+        # Calculate effective wall thickness (unchanged logic)
+        wt_eff = self.effective_wall_thickness(use_mill_tolerance, use_corrosion)
+
+        # Calculate pipe weights for this condition
+        weights = calcs_weight.calculate_pipe_weights(
+            od_inches=self.pipe.od_in,
+            wt_inches=wt_eff,
+            fluid_sg=self.pipe.fluid_sg,
+            use_seawater=True
+        )
+
+        # Run pressure-only checks with check-type-specific internal pressure
+
+        # 1. Burst check - uses design pressure
+        p_i_burst = self.get_internal_pressure_for_check(condition_name, "burst")
+        burst = self.compute_burst(p_i_burst, p_external, wt_eff)
+
+        # 2. Collapse check - uses shut-in for Operation, design for others
+        p_i_collapse = self.get_internal_pressure_for_check(condition_name, "collapse")
+        collapse = self.compute_collapse(p_i_collapse, p_external, wt_eff)
+
+        # 3. Propagation check - same pressure as collapse
+        p_i_propagation = self.get_internal_pressure_for_check(condition_name, "propagation")
+        propagation = self.compute_propagation(p_i_propagation, p_external, wt_eff)
+
+        # 4. Hoop check - uses design pressure
+        p_i_hoop = self.get_internal_pressure_for_check(condition_name, "hoop")
+        hoop = self.compute_hoop(p_i_hoop, p_external, wt_eff)
+
+        # 5. Longitudinal tension - uses design pressure, POSITION-AWARE
+        p_i_longitudinal = self.get_internal_pressure_for_check(condition_name, "longitudinal")
+        longitudinal = self.calculate_longitudinal_load(
+            wt_eff, p_i_longitudinal, p_external, condition_name, position
+        )
+
+        # 6. Combined loading - uses design pressure, POSITION-AWARE
+        p_i_combined = self.get_internal_pressure_for_check(condition_name, "combined")
+        combined = self.calculate_combined_load(
+            wt_eff, p_i_combined, p_external, condition_name, position
+        )
+
+        # Collect pressure-only checks
+        checks = [burst, collapse, propagation, hoop]
+
+        # Find limiting check among pressure-only checks
+        limiting = min(
+            checks,
+            key=lambda c: c["safety_factor"] if c["safety_factor"] != float("inf") else float("inf"),
+        )
+
+        # Overall pass/fail includes all 6 checks (4 pressure + longitudinal + combined)
+        all_pass = (
+            all(c["pass_fail"] for c in checks) and
+            longitudinal["passes"] and
+            combined["passes"]
+        )
+
+        return {
+            "condition_name": condition_name,
+            "position": position,
+            # Store pressures used for each check type (for UI display)
+            "p_internal_burst": p_i_burst,      # Used by: burst, hoop, longitudinal, combined
+            "p_internal_collapse": p_i_collapse,  # Used by: collapse, propagation
+            "p_external_psi": p_external,
+            "wt_nominal": self.pipe.wt_in,
+            "wt_effective": wt_eff,
+            "mill_tolerance_applied": use_mill_tolerance,
+            "corrosion_applied": use_corrosion,
+            "weights": weights,
+            "checks": checks,
+            "longitudinal": longitudinal,
+            "combined": combined,
+            "all_pass": all_pass,
+            "limiting": limiting,
+        }
+
     def run_all_conditions(self) -> Dict[str, Any]:
         """
-        Analyze all three life cycle conditions:
-        1. Installation: No internal pressure, mill tolerance only
-        2. Hydrotest: 1.25× design pressure, mill tolerance only
-        3. Operation: Shut-in pressure (internal pressure), mill tolerance + corrosion
+        Analyze all six life cycle conditions (3 stages × 2 positions):
+
+        1. Installation Top: Empty pipe, atmospheric Po, max tension
+        2. Installation Bottom: Empty pipe, full hydrostatic Po, zero tension
+        3. Hydrotest Top: 1.25× design Pi, atmospheric Po, max tension
+        4. Hydrotest Bottom: 1.25× design Pi, full hydrostatic Po, zero tension
+        5. Operation Top: Design/shut-in Pi, atmospheric Po, max tension
+        6. Operation Bottom: Design/shut-in Pi, full hydrostatic Po, zero tension
+
+        Critical Changes from Previous Implementation:
+        - External pressure varies by position (14.7 vs 14.7+hydrostatic)
+        - Internal pressure varies by check type in Operation condition
+        - Axial tension varies by position (full vs zero)
+
+        Returns:
+        --------
+        Dict with keys:
+        - pipe: Pipe properties
+        - loading: Loading conditions
+        - conditions: Dict with 6 condition results (keys: "installation_top", etc.)
+        - all_conditions_pass: Boolean (True if all 6 pass)
         """
-        p_external = self.external_pressure_psi()
-        
-        # Internal pressure for operation is ALWAYS the shut-in pressure
-        # Per API RP 1111, shut-in pressure is the maximum internal pressure during operation
-        p_operation = self.load.shut_in_pressure_psi
-        
-        # 1. Installation: Empty pipe, no internal pressure
-        installation = self.analyze_condition(
-            "Installation",
-            p_internal=0.0,
-            use_mill_tolerance=True,
-            use_corrosion=False
-        )
-        
-        # 2. Hydrotest: 1.25× design pressure
-        hydrotest = self.analyze_condition(
-            "Hydrotest",
-            p_internal=self.load.design_pressure_psi * HYDROTEST_FACTOR,
-            use_mill_tolerance=True,
-            use_corrosion=False
-        )
-        
-        # 3. Operation: Design/shut-in pressure with corrosion
-        operation = self.analyze_condition(
-            "Operation",
-            p_internal=p_operation,
-            use_mill_tolerance=True,
-            use_corrosion=True
-        )
-        
-        # Check if ALL conditions pass
-        all_conditions_pass = (
-            installation["all_pass"] and 
-            hydrotest["all_pass"] and 
-            operation["all_pass"]
-        )
-        
+        # Define all 6 conditions to analyze
+        # Format: (condition_name, position, use_mill_tolerance, use_corrosion)
+        conditions_to_analyze = [
+            # Installation: Empty pipe, mill tolerance only
+            ("Installation", "Top", True, False),
+            ("Installation", "Bottom", True, False),
+
+            # Hydrotest: Elevated pressure, mill tolerance only
+            ("Hydrotest", "Top", True, False),
+            ("Hydrotest", "Bottom", True, False),
+
+            # Operation: Design/shut-in pressure, mill tolerance + corrosion
+            ("Operation", "Top", True, True),
+            ("Operation", "Bottom", True, True),
+        ]
+
+        results = {}
+
+        for condition_name, position, use_mill, use_corr in conditions_to_analyze:
+            # Create condition key: "installation_top", "hydrotest_bottom", etc.
+            condition_key = f"{condition_name.lower()}_{position.lower()}"
+
+            # Analyze this condition at this position
+            result = self.analyze_condition_at_position(
+                condition_name=condition_name,
+                position=position,
+                use_mill_tolerance=use_mill,
+                use_corrosion=use_corr
+            )
+
+            results[condition_key] = result
+
+        # Check if ALL 6 conditions pass
+        all_conditions_pass = all(r["all_pass"] for r in results.values())
+
         return {
             "pipe": asdict(self.pipe),
             "loading": asdict(self.load),
-            "conditions": {
-                "installation": installation,
-                "hydrotest": hydrotest,
-                "operation": operation,
-            },
+            "conditions": results,  # Now has 6 entries instead of 3
             "all_conditions_pass": all_conditions_pass,
         }
 
@@ -584,23 +806,28 @@ def evaluate_standard_thicknesses(base_pipe: PipeProperties, load: LoadingCondit
         analyzer = LifeCycleAnalyzer(pipe_variant, load)
         result = analyzer.run_all_conditions()
         
-        # Find worst safety factor across all conditions and checks
+        # Find worst safety factor across ALL 6 conditions and checks
         min_sf = float("inf")
         limiting_condition = ""
         limiting_check = ""
-        
-        for cond_name, cond_result in result["conditions"].items():
+
+        for cond_key, cond_result in result["conditions"].items():
+            # cond_key is now: "installation_top", "hydrotest_bottom", etc.
             if cond_result["limiting"]["safety_factor"] < min_sf:
                 min_sf = cond_result["limiting"]["safety_factor"]
-                limiting_condition = cond_name.capitalize()
+
+                # Create display name: "Installation - Top"
+                stage = cond_result["condition_name"]
+                position = cond_result["position"]
+                limiting_condition = f"{stage} - {position}"
                 limiting_check = cond_result["limiting"]["name"]
-        
+
         records.append({
             "WT (in)": wt,
             "Schedule": schedule_name_for_thickness(base_pipe.od_in, wt),
             "Limiting Condition": limiting_condition,
             "Limiting Check": limiting_check,
-            "Safety Factor": min_sf,
+            "Safety Factor": format_safety_factor(min_sf),
             "Utilization (%)": 0 if min_sf == float("inf") else round(100 / min_sf, 1),
             "Status": "PASS" if result["all_conditions_pass"] else "FAIL",
         })
@@ -913,6 +1140,191 @@ def build_verification_notes(pipe: PipeProperties, load: LoadingCondition, resul
     return notes
 
 
+def format_safety_factor(sf: float, check_name: str = "", p_internal: float = 0.0) -> str:
+    """
+    Format safety factor for display with descriptive text for infinite values
+
+    Parameters:
+    -----------
+    sf : float
+        Safety factor value
+    check_name : str
+        Name of check (for context)
+    p_internal : float
+        Internal pressure (for determining N/A reason)
+
+    Returns:
+    --------
+    str : Formatted safety factor text
+
+    Replaces float('inf') with user-friendly descriptions:
+    - "N/A (No internal pressure)" for burst/hoop during installation
+    - "N/A (Favorable loading)" for reverse loading cases
+    - ">999" for extremely high safety factors
+    """
+    if sf == float('inf'):
+        # Determine reason for infinite safety factor
+        if p_internal <= 0 and check_name in ["Burst", "Hoop Stress"]:
+            return "N/A (No internal pressure)"
+        else:
+            return "N/A (Favorable loading)"
+    elif sf > 999:
+        return ">999"
+    else:
+        return f"{sf:.2f}"
+
+
+def render_position_results(position_name: str, cond_result: Dict[str, Any]):
+    """
+    Render results for one position (Top or Bottom) within a lifecycle condition
+
+    Displays:
+    - Position-specific external pressure
+    - Check-specific internal pressures (Operation shows both design and shut-in)
+    - All 7 checks with formatted safety factors
+    - Detailed expandable sections
+
+    Parameters:
+    -----------
+    position_name : str
+        "Top" or "Bottom"
+    cond_result : Dict
+        Result dictionary from analyze_condition_at_position()
+    """
+    st.markdown(f"#### {position_name} Position")
+
+    # Status badge
+    status_html = status_pill("PASS" if cond_result["all_pass"] else "FAIL", cond_result["all_pass"])
+    st.markdown(f"**Status:** {status_html}", unsafe_allow_html=True)
+
+    # Pressure summary card
+    st.markdown("**Pressures:**")
+
+    condition_name = cond_result['condition_name']
+
+    if condition_name == "Operation":
+        # Operation uses different Pi for different checks - show both
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("External (Po)", f"{cond_result['p_external_psi']:.0f} psi")
+        with col2:
+            st.metric("Internal (Pi) - Design", f"{cond_result['p_internal_burst']:.0f} psi")
+            st.caption("For: Burst, Hoop, Longitudinal, Combined")
+        with col3:
+            st.metric("Internal (Pi) - Shut-in", f"{cond_result['p_internal_collapse']:.0f} psi")
+            st.caption("For: Collapse, Propagation")
+    else:
+        # Installation and Hydrotest use same Pi for all checks
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Internal (Pi)", f"{cond_result['p_internal_burst']:.0f} psi")
+        with col2:
+            st.metric("External (Po)", f"{cond_result['p_external_psi']:.0f} psi")
+        with col3:
+            p_diff = cond_result['p_internal_burst'] - cond_result['p_external_psi']
+            st.metric("Differential (Pi-Po)", f"{p_diff:+.0f} psi")
+
+    # Wall thickness
+    col1, col2 = st.columns(2)
+    col1.metric("Nominal WT", f"{cond_result['wt_nominal']:.4f} in")
+    col2.metric("Effective WT", f"{cond_result['wt_effective']:.4f} in")
+
+    # Pipe weights
+    st.markdown("**Pipe Weights (per API RP 1111 Appendix A):**")
+    weights = cond_result["weights"]
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("**Empty Pipe:**")
+        st.write(f"Dry: {weights['void_dry_weight_plf']:.2f} lb/ft")
+        st.write(f"Submerged: {weights['void_submerged_weight_plf']:.2f} lb/ft")
+    with col2:
+        st.markdown("**Flooded (Water):**")
+        st.write(f"Dry: {weights['flooded_dry_weight_plf']:.2f} lb/ft")
+        st.write(f"Submerged: {weights['flooded_submerged_weight_plf']:.2f} lb/ft")
+    with col3:
+        st.markdown("**Product-Filled:**")
+        st.write(f"Dry: {weights['product_filled_dry_weight_plf']:.2f} lb/ft")
+        st.write(f"Submerged: {weights['product_filled_submerged_weight_plf']:.2f} lb/ft")
+
+    # Checks table with formatted safety factors
+    st.markdown("**Analysis Results:**")
+    table_records = []
+    for chk in cond_result["checks"]:
+        sf_formatted = format_safety_factor(
+            chk["safety_factor"],
+            chk["name"],
+            cond_result.get('p_internal_burst', 0)
+        )
+        util_pct = 0 if chk["safety_factor"] == float("inf") else round(100 / chk["safety_factor"], 1)
+        table_records.append({
+            "Check": chk["name"],
+            "Safety Factor": sf_formatted,
+            "Utilization (%)": util_pct,
+            "Status": "PASS" if chk["pass_fail"] else "FAIL",
+        })
+
+    # Add longitudinal tension
+    long_check = cond_result["longitudinal"]
+    sf_formatted = format_safety_factor(long_check["safety_factor"], "Longitudinal")
+    long_util = 0 if long_check["safety_factor"] == float("inf") else round(100 / long_check["safety_factor"], 1)
+    table_records.append({
+        "Check": "Longitudinal Tension",
+        "Safety Factor": sf_formatted,
+        "Utilization (%)": long_util,
+        "Status": long_check["status"],
+    })
+
+    # Add combined loading
+    comb_check = cond_result["combined"]
+    sf_formatted = format_safety_factor(comb_check["safety_factor"], "Combined")
+    comb_util = 0 if comb_check["safety_factor"] == float("inf") else round(100 / comb_check["safety_factor"], 1)
+    table_records.append({
+        "Check": "Combined Loading",
+        "Safety Factor": sf_formatted,
+        "Utilization (%)": comb_util,
+        "Status": comb_check["status"],
+    })
+
+    df = pd.DataFrame(table_records)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # Limiting check
+    limiting_sf_text = format_safety_factor(cond_result['limiting']['safety_factor'])
+    st.info(f"**Limiting Check:** {cond_result['limiting']['name']} with SF = {limiting_sf_text}")
+
+    # Detailed expandable sections
+    with st.expander("📊 Longitudinal Tension Details"):
+        long = long_check
+        st.markdown(f"""
+        **Position:** {cond_result['position']}
+        **Applied Tension (T_a):** {long['t_a_applied_kips']:.2f} kips
+        *{"Full riser weight (submerged)" if position_name == "Top" else "Zero (supported by mudline)"}*
+
+        **Effective Tension (T_eff):** {long['t_eff_effective_kips']:.2f} kips
+        **Allowable (0.60 × T_y):** {long['allowable_tension_kips']:.2f} kips
+
+        **Safety Factor:** {format_safety_factor(long['safety_factor'])}
+        **Status:** {long['status']}
+
+        **Note:** Buoyancy is accounted for in submerged weight calculation.
+        """)
+
+    with st.expander("🔄 Combined Loading Details"):
+        comb = comb_check
+        st.markdown(f"""
+        **Position:** {cond_result['position']}
+        **Combined Ratio:** {comb['combined_ratio']:.4f}
+        **Design Factor:** {comb['design_factor']} ({comb['factor_description']})
+
+        **Pressure Component:** {comb['pressure_component']:.4f}
+        **Tension Component:** {comb['tension_component']:.4f}
+
+        **Safety Factor:** {format_safety_factor(comb['safety_factor'])}
+        **Status:** {"PASS" if comb['passes'] else "FAIL"}
+        """)
+
+
 def render_condition_results(cond_name: str, cond_result: Dict[str, Any]):
     """Render one life cycle condition results"""
     st.markdown(f"### {cond_name.capitalize()} Condition")
@@ -1031,52 +1443,96 @@ def render_condition_results(cond_name: str, cond_result: Dict[str, Any]):
 
 
 def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCondition):
-    """Render complete results with all three life cycle conditions"""
+    """Render complete results with all six life cycle conditions (3 stages × 2 positions)"""
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    
+
     tabs = st.tabs(["Summary", "Installation", "Hydrotest", "Operation", "Standard Thicknesses", "Verification"])
 
     with tabs[0]:
         st.subheader("Life Cycle Analysis Summary")
-        
+
         all_pass = result["all_conditions_pass"]
-        status_html = status_pill("ALL CONDITIONS PASS" if all_pass else "SOME CONDITIONS FAIL", all_pass)
+        status_html = status_pill("ALL 6 CONDITIONS PASS" if all_pass else "SOME CONDITIONS FAIL", all_pass)
         st.markdown(f"Overall: {status_html}", unsafe_allow_html=True)
-        
+
         st.markdown("---")
-        
-        # Summary table
+
+        # Summary table - now with 6 rows
         summary_records = []
-        for cond_name in ["installation", "hydrotest", "operation"]:
-            cond = result["conditions"][cond_name]
+        condition_order = [
+            "installation_top", "installation_bottom",
+            "hydrotest_top", "hydrotest_bottom",
+            "operation_top", "operation_bottom"
+        ]
+
+        for cond_key in condition_order:
+            cond = result["conditions"][cond_key]
+
+            # Create display name: "Installation - Top"
+            stage = cond["condition_name"]
+            position = cond["position"]
+            display_name = f"{stage} - {position}"
+
             summary_records.append({
-                "Condition": cond_name.capitalize(),
+                "Condition": display_name,
                 "Effective WT (in)": f"{cond['wt_effective']:.4f}",
-                "Pi (psi)": f"{cond['p_internal_psi']:.0f}",
                 "Po (psi)": f"{cond['p_external_psi']:.0f}",
+                "Pi Burst (psi)": f"{cond['p_internal_burst']:.0f}",
+                "Pi Collapse (psi)": f"{cond['p_internal_collapse']:.0f}",
                 "Limiting Check": cond["limiting"]["name"],
-                "Min SF": f"{cond['limiting']['safety_factor']:.2f}" if cond["limiting"]["safety_factor"] != float("inf") else "∞",
+                "Min SF": format_safety_factor(cond["limiting"]["safety_factor"]),
                 "Status": "PASS" if cond["all_pass"] else "FAIL",
             })
+
         df_summary = pd.DataFrame(summary_records)
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
-        
+
         if all_pass:
-            st.success("✅ The selected wall thickness satisfies all design criteria for all life cycle conditions.")
+            st.success("✅ The selected wall thickness satisfies all design criteria for all 6 conditions (3 stages × 2 positions).")
         else:
             st.error("❌ Wall thickness does NOT meet all criteria. Review failed conditions and consider increasing thickness.")
 
     with tabs[1]:
-        render_condition_results("Installation", result["conditions"]["installation"])
+        st.markdown("### Installation Condition")
         st.info("Installation: Empty pipe (Pi=0), external pressure + bending during lay. Uses mill tolerance only.")
 
+        position_tabs = st.tabs(["Top Position", "Bottom Position"])
+
+        with position_tabs[0]:
+            render_position_results("Top", result["conditions"]["installation_top"])
+            st.caption("Top of riser: Atmospheric pressure only (14.7 psi), maximum longitudinal tension from full riser weight.")
+
+        with position_tabs[1]:
+            render_position_results("Bottom", result["conditions"]["installation_bottom"])
+            st.caption("Bottom of riser: Full hydrostatic external pressure, zero longitudinal tension (supported by mudline).")
+
     with tabs[2]:
-        render_condition_results("Hydrotest", result["conditions"]["hydrotest"])
+        st.markdown("### Hydrotest Condition")
         st.info(f"Hydrotest: Internal pressure = {HYDROTEST_FACTOR}× design pressure. Uses mill tolerance only.")
 
+        position_tabs = st.tabs(["Top Position", "Bottom Position"])
+
+        with position_tabs[0]:
+            render_position_results("Top", result["conditions"]["hydrotest_top"])
+            st.caption("Top: High internal pressure with atmospheric external, maximum tension.")
+
+        with position_tabs[1]:
+            render_position_results("Bottom", result["conditions"]["hydrotest_bottom"])
+            st.caption("Bottom: High internal pressure with full hydrostatic external, zero tension.")
+
     with tabs[3]:
-        render_condition_results("Operation", result["conditions"]["operation"])
-        st.info(f"Operation: Design pressures with mill tolerance AND {DESIGN_LIFE_YEARS}-year corrosion ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in total).")
+        st.markdown("### Operation Condition")
+        st.info(f"Operation: Uses design pressure for burst/hoop/longitudinal/combined, shut-in for collapse. Includes {DESIGN_LIFE_YEARS}-year corrosion ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in).")
+
+        position_tabs = st.tabs(["Top Position", "Bottom Position"])
+
+        with position_tabs[0]:
+            render_position_results("Top", result["conditions"]["operation_top"])
+            st.caption("Top: Design/shut-in pressures with atmospheric external, full weight tension. Design pressure for burst/hoop, shut-in for collapse.")
+
+        with position_tabs[1]:
+            render_position_results("Bottom", result["conditions"]["operation_bottom"])
+            st.caption("Bottom: Design/shut-in pressures with full hydrostatic external, zero tension. Design for burst/hoop, shut-in for collapse.")
 
     with tabs[4]:
         st.subheader("Standard Thickness Evaluation (ASME B36.10)")

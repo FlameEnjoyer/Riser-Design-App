@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(python test_6_conditions.py:*)",
+      "Bash(python:*)"
+    ]
+  }
+}

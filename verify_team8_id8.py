@@ -123,7 +123,7 @@ print("WEIGHT CALCULATIONS WITH EFFECTIVE WT")
 print("="*80)
 print("\nFor Operation Condition (WT = {:.3f} in):".format(wt_operation))
 
-import calcs_weight
+from calculations import calcs_weight
 
 # Calculate with operation WT
 fluid_sg = 0.82

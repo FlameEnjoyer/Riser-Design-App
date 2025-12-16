@@ -21,12 +21,8 @@ import sys
 from pathlib import Path
 
 # Import calculation modules
-import asme_b36_10
-import calcs_burst
-import calcs_collapse
-import calcs_propagation
-import calcs_bending
-import calcs_hoop
+from reference_data import asme_b36_10
+from calculations import calcs_burst, calcs_collapse, calcs_propagation, calcs_bending, calcs_hoop
 
 
 # Life cycle condition definitions
@@ -65,7 +61,7 @@ LIFE_CYCLE_CONDITIONS = {
 }
 
 
-def load_input_data(filename='input_data.json'):
+def load_input_data(filename='reference_data/input_data.json'):
     """Load design parameters from JSON configuration file."""
     try:
         with open(filename, 'r') as f:
@@ -702,8 +698,8 @@ def main():
     print("="*90)
     
     # Load input data
-    print("\nLoading configuration from 'input_data.json'...")
-    data = load_input_data('input_data.json')
+    print("\nLoading configuration from 'reference_data/input_data.json'...")
+    data = load_input_data()
     
     project_info = data['project_info']
     scenarios = data['scenarios']

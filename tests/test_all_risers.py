@@ -7,20 +7,16 @@ import json
 import sys
 from pathlib import Path
 
-# Add current directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import asme_b36_10
-import calcs_burst
-import calcs_collapse
-import calcs_propagation
-import calcs_bending
-import calcs_hoop
+from reference_data import asme_b36_10
+from calculations import calcs_burst, calcs_collapse, calcs_propagation, calcs_bending, calcs_hoop
 
 
 def load_riser_database():
     """Load the riser database from JSON file"""
-    db_path = Path(__file__).parent / "riser_database.json"
+    db_path = Path(__file__).parent.parent / "reference_data" / "riser_database.json"
     with open(db_path, 'r') as f:
         data = json.load(f)
     return data.get('risers', {})
