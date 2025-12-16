@@ -1548,7 +1548,7 @@ def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCo
                     f"✅ Least passing thickness: **{first_pass['WT (in)']:.4f} in** (Schedule: {first_pass['Schedule']})"
                 )
                 st.info(
-                    f"Limiting: {first_pass['Limiting Condition']} - {first_pass['Limiting Check']} with SF {first_pass['Safety Factor']:.2f}"
+                    f"Limiting: {first_pass['Limiting Condition']} - {first_pass['Limiting Check']} with SF {first_pass['Safety Factor']}"
                 )
                 
                 # Find closest standard >= input WT
