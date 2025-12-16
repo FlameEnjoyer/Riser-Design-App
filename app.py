@@ -1117,26 +1117,28 @@ def build_verification_notes(pipe: PipeProperties, load: LoadingCondition, resul
     """Build automated verification warnings"""
     notes: List[str] = []
     d_over_t = pipe.od_in / max(pipe.wt_in, 1e-6)
-    
-    # Check operation condition WT
-    op_wt = result["conditions"]["operation"]["wt_effective"]
+
+    # Check operation condition WT (use operation_top as representative)
+    op_wt = result["conditions"]["operation_top"]["wt_effective"]
     if op_wt < 0.1:
         notes.append(f"⚠️ Operation WT very thin ({op_wt:.4f} in) after corrosion and mill tolerance")
-    
+
     if d_over_t > 120:
         notes.append(f"⚠️ High D/t ratio ({d_over_t:.1f}); check fabrication tolerances")
-    
+
     if load.shut_in_pressure_psi > load.design_pressure_psi * 1.5:
         notes.append("⚠️ Shut-in pressure > 1.5× design; confirm well control assumptions")
-    
+
     if pipe.fluid_sg < 0.02 or pipe.fluid_sg > 1.2:
         notes.append(f"⚠️ Fluid SG ({pipe.fluid_sg}) outside typical range")
-    
+
     # Check if any condition fails
     for cond_name, cond in result["conditions"].items():
         if not cond["all_pass"]:
-            notes.append(f"❌ {cond_name.capitalize()} condition fails")
-    
+            # Format condition name nicely (e.g., "operation_top" -> "Operation Top")
+            formatted_name = cond_name.replace("_", " ").title()
+            notes.append(f"❌ {formatted_name} condition fails")
+
     return notes
 
 
