@@ -27,9 +27,22 @@ COLOR_SUCCESS = "#10b981"
 COLOR_ALERT = "#ef4444"
 
 GRADE_PROPERTIES = {
+    # API 5L Grades (Specification for Line Pipe)
+    # Format: Grade: {SMYS (ksi), UTS (ksi)}
+    "A25": {"smys_psi": 25000, "uts_psi": 45000},
+    "A": {"smys_psi": 30000, "uts_psi": 48000},
+    "B": {"smys_psi": 35000, "uts_psi": 60000},
+    "X-42": {"smys_psi": 42000, "uts_psi": 60000},
+    "X-46": {"smys_psi": 46000, "uts_psi": 63000},
     "X-52": {"smys_psi": 52000, "uts_psi": 66000},
+    "X-56": {"smys_psi": 56000, "uts_psi": 71000},
     "X-60": {"smys_psi": 60000, "uts_psi": 75000},
     "X-65": {"smys_psi": 65000, "uts_psi": 77000},
+    "X-70": {"smys_psi": 70000, "uts_psi": 82000},
+    "X-80": {"smys_psi": 80000, "uts_psi": 90000},
+    "X-90": {"smys_psi": 90000, "uts_psi": 100000},
+    "X-100": {"smys_psi": 100000, "uts_psi": 110000},
+    "X-120": {"smys_psi": 120000, "uts_psi": 130000},
 }
 
 MANUFACTURING_COLLAPSE_FACTOR = {
@@ -983,7 +996,6 @@ def initialize_state():
         "wt_in": defaults["wt"],
         "design_pressure": defaults["design_pressure"],
         "shut_in_pressure": defaults["shut_in_pressure"],
-        "shut_in_location": defaults["shut_in_location"],
         "water_depth": defaults["water_depth"],
         "riser_length": defaults["water_depth"],  # Initialize with water depth
         "fluid_sg": defaults["fluid_sg"],
@@ -1004,7 +1016,6 @@ def apply_reference(name: str):
     st.session_state.wt_in = ref["wt"]
     st.session_state.design_pressure = ref["design_pressure"]
     st.session_state.shut_in_pressure = ref["shut_in_pressure"]
-    st.session_state.shut_in_location = ref["shut_in_location"]
     st.session_state.water_depth = ref["water_depth"]
     st.session_state.riser_length = ref["water_depth"]  # Default to water depth
     st.session_state.fluid_sg = ref["fluid_sg"]
@@ -1043,7 +1054,7 @@ def build_pipe_and_load() -> Tuple[PipeProperties, LoadingCondition]:
     load = LoadingCondition(
         design_pressure_psi=st.session_state.design_pressure,
         shut_in_pressure_psi=st.session_state.shut_in_pressure,
-        shut_in_location=st.session_state.shut_in_location,
+        shut_in_location="Subsea Wellhead",  # Default value (not used in calculations)
         water_depth_m=st.session_state.water_depth,
         riser_length_m=st.session_state.get("riser_length", st.session_state.water_depth),
     )
@@ -1078,9 +1089,6 @@ def render_input_sections():
         with col1:
             st.session_state.design_pressure = st.number_input("Design Pressure (psi)", min_value=0.0, max_value=20000.0, value=st.session_state.design_pressure, step=10.0)
             st.session_state.shut_in_pressure = st.number_input("Shut-in Pressure (psi)", min_value=0.0, max_value=20000.0, value=st.session_state.shut_in_pressure, step=10.0)
-        with col2:
-            st.session_state.shut_in_location = st.selectbox("Shut-in Pressure Location", ["Subsea Wellhead", "Top of Riser"], index=["Subsea Wellhead", "Top of Riser"].index(st.session_state.shut_in_location))
-            st.caption("Subsea Wellhead: Use design pressure for operation\nTop of Riser: Use max(design, shut-in)")
 
     with tabs[2]:
         st.session_state.water_depth = st.number_input("💧 Water Depth (m)", min_value=0.0, max_value=4000.0, value=st.session_state.water_depth, step=10.0, help="Kedalam Laut / Depth for external pressure calculation")
