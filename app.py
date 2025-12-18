@@ -1240,7 +1240,7 @@ def render_position_results(position_name: str, cond_result: Dict[str, Any]):
     col2.metric("Effective WT", f"{cond_result['wt_effective']:.4f} in")
 
     # Pipe weights
-    st.markdown("**Pipe Weights (per API RP 1111 Appendix A):**")
+    st.markdown("**Pipe Weights:**")
     weights = cond_result["weights"]
 
     col1, col2, col3 = st.columns(3)
@@ -1349,7 +1349,7 @@ def render_condition_results(cond_name: str, cond_result: Dict[str, Any]):
     col4.metric("Po", f"{cond_result['p_external_psi']:.0f} psi")
     
     # Display pipe weights
-    st.markdown("#### Pipe Weights (per API RP 1111 Appendix A)")
+    st.markdown("#### Pipe Weights")
     weights = cond_result["weights"]
     
     col1, col2, col3 = st.columns(3)
