@@ -469,8 +469,9 @@ class LifeCycleAnalyzer:
         ft = 1.0  # Temperature factor
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
+        uts = self.pipe.uts_psi
 
-        pb = 0.90 * smys * wt_eff / (od - wt_eff) if od > wt_eff else 0.0
+        pb = 0.90 * (smys + uts) * wt_eff / (od - wt_eff) if od > wt_eff else 0.0
         delta_p = p_internal - p_external
         
         if delta_p <= 0:
