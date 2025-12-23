@@ -725,35 +725,37 @@ class LifeCycleAnalyzer:
         """
         Hoop stress check per ASME B31.4 Section 402.3
 
-        CRITICAL: Per ASME B31.4 Sec 402.3, hoop stress is calculated from
-        INTERNAL DESIGN GAGE PRESSURE ONLY, NOT differential pressure (Pi - Po).
-
-        Formula: S_H = P_i × D / (2 × t)
+        Formula (Barlow for thin-wall): S_H = (P_i - P_o) × D / (2 × t)
 
         Where:
         - S_H = Hoop stress (psi)
-        - P_i = Internal design gage pressure (psi)
+        - P_i = Internal pressure (psi)
+        - P_o = External pressure (psi)
         - D = Outside diameter (inches)
         - t = Wall thickness (inches)
 
         Criterion: S_H ≤ F × SMYS
 
-        NOTE: This equation is applicable for D/t ≥ 20 (thin-wall pipes)
+        NOTE: Uses differential pressure (P_i - P_o) because hoop stress is
+        caused by the pressure differential across the pipe wall.
+        This equation is applicable for D/t ≥ 20 (thin-wall assumption).
         """
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
         design_factor = self._hoop_design_factor()
         d_over_t = od / wt_eff if wt_eff > 0 else float('inf')
 
-        # ASME B31.4 Sec 402.3: Use INTERNAL pressure only (NOT delta_p)
-        # S_H = P_i × D / (2 × t)
+        # Net pressure differential (causes hoop stress)
+        delta_p = p_internal - p_external
+
+        # Barlow formula: S_H = (P_i - P_o) × D / (2 × t)
         if wt_eff <= 0 or od <= wt_eff:
             hoop_stress = float("inf")
-        elif p_internal <= 0:
-            # No internal pressure (empty pipe) - no hoop stress
+        elif delta_p <= 0:
+            # No net internal pressure - no hoop stress concern
             hoop_stress = 0.0
         else:
-            hoop_stress = p_internal * od / (2 * wt_eff)
+            hoop_stress = delta_p * od / (2 * wt_eff)
 
         # Allowable stress: S_allowable = F × SMYS
         allowable = design_factor * smys
@@ -773,6 +775,7 @@ class LifeCycleAnalyzer:
             "utilization": 0 if sf == float("inf") else 1 / sf,
             "pass_fail": sf >= 1.0,
             "details": {
+                "delta_p": delta_p,
                 "p_internal": p_internal,
                 "p_external": p_external,
                 "od": od,
@@ -1709,22 +1712,24 @@ P_p = 35 × SMYS × (t/D)^2.5
         allowable = hoop_chk.get("allowable", 0)
 
         st.markdown(f"""
-**Formula (Barlow):**
+**Formula (Barlow for Thin-Wall):**
 ```
-S_H = P_i × D / (2 × t)
+S_H = (P_i - P_o) × D / (2 × t)
 ```
 
-**IMPORTANT:** Per ASME B31.4 Sec 402.3, hoop stress uses **internal design gage pressure only**,
-NOT the differential pressure (P_i - P_o). This is the industry standard approach.
+**Physical Basis:** Hoop stress is the circumferential stress in the pipe wall caused by
+the **pressure differential** across the wall. External pressure reduces the hoop stress.
 
 **Input Parameters:**
 - OD (D): {d.get('od', 0):.3f} in
 - Wall Thickness (t): {d.get('wt_eff', 0):.4f} in
 - D/t Ratio: {d.get('d_over_t', 0):.1f}
 - Internal Pressure (P_i): {d.get('p_internal', 0):,.0f} psi
+- External Pressure (P_o): {d.get('p_external', 0):,.0f} psi
 - SMYS: {d.get('smys', 0):,.0f} psi
 
 **Calculation:**
+- Differential Pressure (P_i - P_o): {d.get('delta_p', 0):,.0f} psi
 - Hoop Stress (S_H): {hoop_stress:,.0f} psi ({hoop_stress/1000:.2f} ksi)
 - Design Factor (F): {hoop_chk.get('design_factor', 0.72):.2f}
 - Allowable Stress (F × SMYS): {allowable:,.0f} psi ({allowable/1000:.2f} ksi)
