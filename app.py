@@ -179,9 +179,50 @@ class LifeCycleAnalyzer:
             hydrostatic_psi = DEFAULT_WATER_DENSITY * depth_ft / 144.0
             return ATMOSPHERIC_PSI + hydrostatic_psi
 
-    def get_internal_pressure_for_check(self, condition_name: str, check_type: str) -> float:
+    def calculate_mop(self) -> float:
         """
-        Determine internal pressure based on condition and check type
+        Calculate MOP (Maximum Operating Pressure) per API RP 1111
+
+        MOP = Shut-in Pressure - Hydrostatic Head of Riser Contents
+
+        The hydrostatic head is the pressure exerted by the fluid column
+        inside the riser from bottom to top.
+
+        Formula:
+        Hydrostatic Head (psi) = (fluid_sg × water_density_pcf) × riser_length_ft / 144
+
+        Where:
+        - fluid_sg: Fluid specific gravity (dimensionless)
+        - water_density_pcf: 64 lb/ft³ (seawater)
+        - riser_length_ft: Riser vertical length in feet
+        - 144: Conversion factor from lb/ft² to psi
+
+        Returns:
+        --------
+        float : MOP in psi
+
+        Notes:
+        - MOP is only different from shut-in when shut-in location is at Subsea Wellhead
+        - When shut-in is at Top of Riser, MOP = shut-in pressure (no adjustment)
+        - MOP represents the pressure at top of riser when shut-in valve closes at bottom
+        """
+        # If shut-in location is at top, MOP = shut-in (no adjustment needed)
+        if self.load.shut_in_location == "Top of Riser":
+            return self.load.shut_in_pressure_psi
+
+        # Calculate hydrostatic head of riser contents
+        riser_length_ft = self._ft_from_m(self.load.riser_length_m)
+        fluid_density_pcf = self.pipe.fluid_sg * DEFAULT_WATER_DENSITY  # lb/ft³
+        hydrostatic_head_psi = (fluid_density_pcf * riser_length_ft) / 144.0
+
+        # MOP = Shut-in pressure at bottom - hydrostatic head
+        mop = self.load.shut_in_pressure_psi - hydrostatic_head_psi
+
+        return max(mop, 0.0)  # Ensure non-negative
+
+    def get_internal_pressure_for_check(self, condition_name: str, check_type: str, position: str = "Top") -> float:
+        """
+        Determine internal pressure based on condition, check type, and position
 
         Parameters:
         -----------
@@ -189,23 +230,30 @@ class LifeCycleAnalyzer:
             "Installation", "Hydrotest", or "Operation"
         check_type : str
             "burst", "collapse", "propagation", "hoop", "longitudinal", "combined"
+        position : str
+            "Top" or "Bottom" - riser position being analyzed
 
         Returns:
         --------
         float : Internal pressure in psi
 
-        CRITICAL LOGIC FOR OPERATION CONDITION:
-        - Uses design_pressure for: burst, hoop, longitudinal, combined
-        - Uses shut_in_pressure ONLY for: collapse, propagation
+        CRITICAL LOGIC FOR OPERATION CONDITION WITH MOP:
 
-        This is more conservative per user requirements:
-        - Design pressure ensures adequate burst/hoop resistance
-        - Shut-in pressure used for collapse (actual operating condition)
+        Pressure Selection Strategy:
+        1. Burst, Hoop, Longitudinal, Combined → Always use DESIGN PRESSURE
+        2. Collapse, Propagation → Use shut-in or MOP based on position and shut-in location
+
+        MOP (Maximum Operating Pressure) Logic:
+        - MOP = Shut-in Pressure - Hydrostatic Head of Riser Contents
+        - Only applies when shut-in location is "Subsea Wellhead"
+        - When analyzing TOP position with shut-in at BOTTOM → Use MOP
+        - When analyzing BOTTOM position → Use full shut-in pressure
+        - When shut-in at TOP → MOP = shut-in (no adjustment needed)
 
         Rationale:
-        Design pressure represents maximum credible internal pressure for
-        sizing purposes. Shut-in pressure represents actual operating
-        condition relevant for external collapse resistance.
+        - Design pressure ensures adequate burst/hoop resistance for sizing
+        - MOP/shut-in pressure used for collapse (actual operating pressures)
+        - Position-dependent pressure accounts for fluid column weight
         """
         if condition_name == "Installation":
             # Empty pipe during installation
@@ -217,13 +265,27 @@ class LifeCycleAnalyzer:
 
         elif condition_name == "Operation":
             # CRITICAL: Different pressures per check type
-            if check_type in ["collapse", "propagation"]:
-                # Collapse checks use actual operating pressure (shut-in)
-                return self.load.shut_in_pressure_psi
-            else:
-                # Burst, hoop, longitudinal, combined use design pressure
-                # for conservative sizing
+
+            # Design pressure checks (burst, hoop, longitudinal, combined)
+            if check_type in ["burst", "hoop", "longitudinal", "combined"]:
+                # Always use design pressure for these checks
                 return self.load.design_pressure_psi
+
+            # Collapse and propagation checks - use shut-in/MOP
+            elif check_type in ["collapse", "propagation"]:
+                # Check shut-in location
+                if self.load.shut_in_location == "Subsea Wellhead":
+                    # Shut-in valve at bottom of riser
+                    if position.lower() == "top":
+                        # At top: Use MOP (shut-in minus hydrostatic head)
+                        return self.calculate_mop()
+                    else:
+                        # At bottom: Use full shut-in pressure
+                        return self.load.shut_in_pressure_psi
+                else:
+                    # Shut-in location at "Top of Riser"
+                    # MOP = shut-in (no adjustment), use for all positions
+                    return self.load.shut_in_pressure_psi
 
         return 0.0
 
@@ -677,31 +739,32 @@ class LifeCycleAnalyzer:
         )
 
         # Run pressure-only checks with check-type-specific internal pressure
+        # NOW WITH MOP SUPPORT: position affects collapse/propagation pressures
 
-        # 1. Burst check - uses design pressure
-        p_i_burst = self.get_internal_pressure_for_check(condition_name, "burst")
+        # 1. Burst check - uses design pressure (no MOP)
+        p_i_burst = self.get_internal_pressure_for_check(condition_name, "burst", position)
         burst = self.compute_burst(p_i_burst, p_external, wt_eff)
 
-        # 2. Collapse check - uses shut-in for Operation, design for others
-        p_i_collapse = self.get_internal_pressure_for_check(condition_name, "collapse")
+        # 2. Collapse check - uses shut-in/MOP depending on position
+        p_i_collapse = self.get_internal_pressure_for_check(condition_name, "collapse", position)
         collapse = self.compute_collapse(p_i_collapse, p_external, wt_eff)
 
-        # 3. Propagation check - same pressure as collapse
-        p_i_propagation = self.get_internal_pressure_for_check(condition_name, "propagation")
+        # 3. Propagation check - uses shut-in/MOP depending on position
+        p_i_propagation = self.get_internal_pressure_for_check(condition_name, "propagation", position)
         propagation = self.compute_propagation(p_i_propagation, p_external, wt_eff)
 
-        # 4. Hoop check - uses design pressure
-        p_i_hoop = self.get_internal_pressure_for_check(condition_name, "hoop")
+        # 4. Hoop check - uses design pressure (no MOP)
+        p_i_hoop = self.get_internal_pressure_for_check(condition_name, "hoop", position)
         hoop = self.compute_hoop(p_i_hoop, p_external, wt_eff)
 
         # 5. Longitudinal tension - uses design pressure, POSITION-AWARE
-        p_i_longitudinal = self.get_internal_pressure_for_check(condition_name, "longitudinal")
+        p_i_longitudinal = self.get_internal_pressure_for_check(condition_name, "longitudinal", position)
         longitudinal = self.calculate_longitudinal_load(
             wt_eff, p_i_longitudinal, p_external, condition_name, position
         )
 
         # 6. Combined loading - uses design pressure, POSITION-AWARE
-        p_i_combined = self.get_internal_pressure_for_check(condition_name, "combined")
+        p_i_combined = self.get_internal_pressure_for_check(condition_name, "combined", position)
         combined = self.calculate_combined_load(
             wt_eff, p_i_combined, p_external, condition_name, position
         )
@@ -722,6 +785,14 @@ class LifeCycleAnalyzer:
             combined["passes"]
         )
 
+        # Calculate MOP for information display
+        mop_psi = self.calculate_mop()
+        mop_active = (
+            condition_name == "Operation" and
+            self.load.shut_in_location == "Subsea Wellhead" and
+            position.lower() == "top"
+        )
+
         return {
             "condition_name": condition_name,
             "position": position,
@@ -739,6 +810,10 @@ class LifeCycleAnalyzer:
             "combined": combined,
             "all_pass": all_pass,
             "limiting": limiting,
+            # MOP information
+            "mop_psi": mop_psi,
+            "mop_active": mop_active,
+            "shut_in_location": self.load.shut_in_location,
         }
 
     def run_all_conditions(self) -> Dict[str, Any]:
@@ -997,6 +1072,7 @@ def initialize_state():
         "wt_in": defaults["wt"],
         "design_pressure": defaults["design_pressure"],
         "shut_in_pressure": defaults["shut_in_pressure"],
+        "shut_in_location": defaults["shut_in_location"],
         "water_depth": defaults["water_depth"],
         "riser_length": defaults["water_depth"],  # Initialize with water depth
         "fluid_sg": defaults["fluid_sg"],
@@ -1017,6 +1093,7 @@ def apply_reference(name: str):
     st.session_state.wt_in = ref["wt"]
     st.session_state.design_pressure = ref["design_pressure"]
     st.session_state.shut_in_pressure = ref["shut_in_pressure"]
+    st.session_state.shut_in_location = ref["shut_in_location"]
     st.session_state.water_depth = ref["water_depth"]
     st.session_state.riser_length = ref["water_depth"]  # Default to water depth
     st.session_state.fluid_sg = ref["fluid_sg"]
@@ -1055,7 +1132,7 @@ def build_pipe_and_load() -> Tuple[PipeProperties, LoadingCondition]:
     load = LoadingCondition(
         design_pressure_psi=st.session_state.design_pressure,
         shut_in_pressure_psi=st.session_state.shut_in_pressure,
-        shut_in_location="Subsea Wellhead",  # Default value (not used in calculations)
+        shut_in_location=st.session_state.get("shut_in_location", "Subsea Wellhead"),
         water_depth_m=st.session_state.water_depth,
         riser_length_m=st.session_state.get("riser_length", st.session_state.water_depth),
     )
@@ -1090,6 +1167,14 @@ def render_input_sections():
         with col1:
             st.session_state.design_pressure = st.number_input("Design Pressure (psi)", min_value=0.0, max_value=20000.0, value=st.session_state.design_pressure, step=10.0)
             st.session_state.shut_in_pressure = st.number_input("Shut-in Pressure (psi)", min_value=0.0, max_value=20000.0, value=st.session_state.shut_in_pressure, step=10.0)
+        with col2:
+            st.session_state.shut_in_location = st.selectbox(
+                "Shut-in Location",
+                ["Subsea Wellhead", "Top of Riser"],
+                index=["Subsea Wellhead", "Top of Riser"].index(st.session_state.get("shut_in_location", "Subsea Wellhead")),
+                help="Location where shut-in pressure is measured. Affects MOP calculation."
+            )
+            st.caption("**MOP (Maximum Operating Pressure)** is calculated when shut-in is at Subsea Wellhead:\nMOP = Shut-in Pressure - Hydrostatic Head of Riser Contents")
 
     with tabs[2]:
         st.session_state.water_depth = st.number_input("💧 Water Depth (m)", min_value=0.0, max_value=4000.0, value=st.session_state.water_depth, step=10.0, help="Kedalam Laut / Depth for external pressure calculation")
@@ -1214,16 +1299,33 @@ def render_position_results(position_name: str, cond_result: Dict[str, Any]):
     condition_name = cond_result['condition_name']
 
     if condition_name == "Operation":
-        # Operation uses different Pi for different checks - show both
-        col1, col2, col3 = st.columns(3)
+        # Operation uses different Pi for different checks - show design, shut-in, and MOP
+        # Check if MOP is being used (collapse pressure differs from shut-in)
+        shut_in_used = cond_result.get('p_internal_collapse', 0)
+
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("External (Po)", f"{cond_result['p_external_psi']:.0f} psi")
         with col2:
-            st.metric("Internal (Pi) - Design", f"{cond_result['p_internal_burst']:.0f} psi")
+            st.metric("Design Pressure", f"{cond_result['p_internal_burst']:.0f} psi")
             st.caption("For: Burst, Hoop, Longitudinal, Combined")
         with col3:
-            st.metric("Internal (Pi) - Shut-in", f"{cond_result['p_internal_collapse']:.0f} psi")
+            st.metric("Shut-in/MOP", f"{shut_in_used:.0f} psi")
             st.caption("For: Collapse, Propagation")
+        with col4:
+            # Show MOP indicator if applicable
+            if cond_result.get('mop_active', False):
+                st.metric("MOP Active", "✓ Yes")
+                st.caption(f"MOP = {cond_result['mop_psi']:.0f} psi")
+                st.caption("(Shut-in at Subsea Wellhead)")
+            else:
+                st.metric("MOP Active", "✗ No")
+                if cond_result.get('shut_in_location') == "Top of Riser":
+                    st.caption("Shut-in at Top")
+                elif position_name == "Bottom":
+                    st.caption("Bottom position uses full shut-in")
+                else:
+                    st.caption("Using shut-in pressure")
     else:
         # Installation and Hydrotest use same Pi for all checks
         col1, col2, col3 = st.columns(3)
@@ -1533,17 +1635,39 @@ def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCo
 
     with tabs[3]:
         st.markdown("### Operation Condition")
-        st.info(f"Operation: Uses design pressure for burst/hoop/longitudinal/combined, shut-in for collapse. Includes {DESIGN_LIFE_YEARS}-year corrosion ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in).")
+
+        # Get MOP info from operation_top result
+        op_top = result["conditions"]["operation_top"]
+        shut_in_loc = op_top.get("shut_in_location", "Subsea Wellhead")
+        mop_value = op_top.get("mop_psi", 0)
+
+        # Display MOP information box
+        if shut_in_loc == "Subsea Wellhead":
+            st.info(f"""
+            **Operation Pressure Strategy with MOP:**
+            - **Design pressure** used for: Burst, Hoop, Longitudinal, Combined
+            - **Shut-in/MOP** used for: Collapse, Propagation
+            - **MOP (Maximum Operating Pressure)** = {mop_value:.0f} psi
+            - MOP applies at **Top** position when shut-in location is at **Subsea Wellhead**
+            - Includes {DESIGN_LIFE_YEARS}-year corrosion ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in)
+
+            **MOP Calculation:** Shut-in Pressure - Hydrostatic Head of Riser Contents
+            """)
+        else:
+            st.info(f"Operation: Uses design pressure for burst/hoop/longitudinal/combined, shut-in for collapse. Includes {DESIGN_LIFE_YEARS}-year corrosion ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in).")
 
         position_tabs = st.tabs(["Top Position", "Bottom Position"])
 
         with position_tabs[0]:
             render_position_results("Top", result["conditions"]["operation_top"])
-            st.caption("Top: Design/shut-in pressures with atmospheric external, full weight tension. Design pressure for burst/hoop, shut-in for collapse.")
+            if shut_in_loc == "Subsea Wellhead":
+                st.caption("Top: Design pressure for burst/hoop/longitudinal/combined, **MOP** for collapse/propagation. Atmospheric external, full weight tension.")
+            else:
+                st.caption("Top: Design/shut-in pressures with atmospheric external, full weight tension. Design pressure for burst/hoop, shut-in for collapse.")
 
         with position_tabs[1]:
             render_position_results("Bottom", result["conditions"]["operation_bottom"])
-            st.caption("Bottom: Design/shut-in pressures with full hydrostatic external, zero tension. Design for burst/hoop, shut-in for collapse.")
+            st.caption("Bottom: Design pressure for burst/hoop/longitudinal/combined, **full shut-in** for collapse/propagation. Full hydrostatic external, zero tension.")
 
     with tabs[4]:
         st.subheader("Standard Thickness Evaluation (ASME B36.10)")
