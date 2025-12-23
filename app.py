@@ -525,25 +525,45 @@ class LifeCycleAnalyzer:
         return 0.90 if design_category.lower() == "pipeline" else 0.75
 
     def compute_burst(self, p_internal: float, p_external: float, wt_eff: float) -> Dict[str, Any]:
-        """Burst pressure check per API RP 1111 Section 4.3.1"""
+        """
+        Burst pressure check per API RP 1111 Section 4.3.1
+
+        Formula (Barlow thin-wall approximation):
+        P_b = 0.90 × (SMYS + UTS) × t / (D - t)
+
+        Criterion: (P_i - P_o) ≤ f_d × f_e × f_t × P_b
+
+        Where:
+        - f_d = Design factor (0.75 for Riser/Flowline, 0.90 for Pipeline)
+        - f_e = Weld joint factor (1.0 for seamless)
+        - f_t = Temperature derating factor (1.0 for ambient)
+        """
         fd = self._burst_design_factor(self.pipe.design_category)
         fe = 1.0  # Weld joint factor
         ft = 1.0  # Temperature factor
         od = self.pipe.od_in
+        id_val = od - 2 * wt_eff
         smys = self.pipe.smys_psi
         uts = self.pipe.uts_psi
 
+        # Burst pressure: P_b = 0.90 × (SMYS + UTS) × t / (D - t)
         pb = 0.90 * (smys + uts) * wt_eff / (od - wt_eff) if od > wt_eff else 0.0
+
+        # Allowable burst pressure
+        allowable_burst = fd * fe * ft * pb
+
+        # Net internal pressure
         delta_p = p_internal - p_external
-        
+
         if delta_p <= 0:
             sf = float("inf")
         else:
-            sf = (fd * fe * ft * pb) / delta_p
+            sf = allowable_burst / delta_p
 
         return {
             "name": "Burst",
             "pb": pb,
+            "allowable_burst": allowable_burst,
             "safety_factor": sf,
             "utilization": 0 if sf == float("inf") else 1 / sf,
             "pass_fail": sf >= 1.0,
@@ -552,11 +572,31 @@ class LifeCycleAnalyzer:
                 "joint_factor": fe,
                 "temperature_factor": ft,
                 "delta_p": delta_p,
+                "p_internal": p_internal,
+                "p_external": p_external,
+                "od": od,
+                "id": id_val,
+                "wt_eff": wt_eff,
+                "smys": smys,
+                "uts": uts,
             },
         }
 
     def compute_collapse(self, p_internal: float, p_external: float, wt_eff: float) -> Dict[str, Any]:
-        """External collapse check per API RP 1111 Section 4.3.2"""
+        """
+        External collapse check per API RP 1111 Section 4.3.2
+
+        Formulas:
+        - Yield Collapse: P_y = 2 × SMYS × (t/D)
+        - Elastic Collapse: P_e = 2 × E × (t/D)³ / [(1 - ν²) × (1 + δ)]
+        - Critical Collapse: P_c = P_y × P_e / √(P_y² + P_e²)
+
+        Criterion: (P_o - P_i) ≤ f_o × P_c
+
+        Where:
+        - f_o = Collapse factor (0.70 for SMLS/ERW, 0.60 for DSAW)
+        - δ = Ovality (0.5% for Other Type, 1.0% for Reel-lay)
+        """
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
         E = self.pipe.E_psi
@@ -565,68 +605,164 @@ class LifeCycleAnalyzer:
         f_o = MANUFACTURING_COLLAPSE_FACTOR.get(self.pipe.manufacturing.upper(), 0.70)
 
         t_over_d = wt_eff / od
+        d_over_t = od / wt_eff if wt_eff > 0 else float('inf')
+
+        # Yield collapse: P_y = 2 × SMYS × (t/D)
         py = 2 * smys * t_over_d
-        # Pe adjusted for ovality per API RP 1111 Section 4.3.2
+
+        # Elastic collapse adjusted for ovality: P_e = 2 × E × (t/D)³ / [(1 - ν²) × (1 + δ)]
         pe = (2 * E * (t_over_d ** 3)) / ((1 - nu ** 2) * (1 + ovality))
+
+        # Critical collapse: P_c = P_y × P_e / √(P_y² + P_e²)
         pc = (py * pe) / math.sqrt(py ** 2 + pe ** 2) if (py > 0 and pe > 0) else 0.0
 
+        # Allowable collapse pressure
+        allowable_collapse = f_o * pc
+
+        # Determine collapse mode
+        if py > 0 and pe > 0:
+            py_pe_ratio = py / pe
+            if py_pe_ratio < 1.5:
+                collapse_mode = "Elastic"
+            elif py_pe_ratio < 4.0:
+                collapse_mode = "Plastic"
+            else:
+                collapse_mode = "Yield"
+        else:
+            py_pe_ratio = 0.0
+            collapse_mode = "N/A"
+
+        # Net external pressure
         delta_p = p_external - p_internal
         if delta_p <= 0:
             sf = float("inf")
         else:
-            sf = (f_o * pc) / delta_p
+            sf = allowable_collapse / delta_p
 
         return {
             "name": "Collapse",
             "py": py,
             "pe": pe,
             "pc": pc,
+            "allowable_collapse": allowable_collapse,
             "collapse_factor": f_o,
+            "collapse_mode": collapse_mode,
             "ovality": ovality,
             "safety_factor": sf,
             "utilization": 0 if sf == float("inf") else 1 / sf,
             "pass_fail": sf >= 1.0,
-            "details": {"delta_p": delta_p},
+            "details": {
+                "delta_p": delta_p,
+                "p_internal": p_internal,
+                "p_external": p_external,
+                "od": od,
+                "wt_eff": wt_eff,
+                "t_over_d": t_over_d,
+                "d_over_t": d_over_t,
+                "smys": smys,
+                "E": E,
+                "poisson": nu,
+                "py_pe_ratio": py_pe_ratio,
+            },
         }
 
     def compute_propagation(self, p_internal: float, p_external: float, wt_eff: float) -> Dict[str, Any]:
-        """Propagation buckling check per API RP 1111 Section 4.3.2.3"""
+        """
+        Propagation buckling check per API RP 1111 Section 4.3.2.3
+
+        Formula: P_p = 35 × SMYS × (t/D)^2.5
+
+        Criterion: (P_o - P_i) ≤ f_p × P_p
+
+        Where:
+        - f_p = 0.80 (Propagation buckling design factor)
+        - P_p = Propagation pressure (the pressure at which a buckle propagates)
+
+        Note: Propagation buckling arrestors may be required if net external
+        pressure exceeds this limit.
+        """
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
         fp = 0.80
         t_over_d = wt_eff / od
+        d_over_t = od / wt_eff if wt_eff > 0 else float('inf')
+
+        # Propagation pressure: P_p = 35 × SMYS × (t/D)^2.5
         pp = 35 * smys * (t_over_d ** 2.5)
+
+        # Allowable propagation pressure
+        allowable_prop = fp * pp
+
+        # Net external pressure
         delta_p = p_external - p_internal
 
         if delta_p <= 0:
             sf = float("inf")
         else:
-            sf = (fp * pp) / delta_p
+            sf = allowable_prop / delta_p
 
         return {
             "name": "Propagation",
             "pp": pp,
+            "allowable_prop": allowable_prop,
             "design_factor": fp,
             "safety_factor": sf,
             "utilization": 0 if sf == float("inf") else 1 / sf,
             "pass_fail": sf >= 1.0,
-            "details": {"delta_p": delta_p},
+            "details": {
+                "delta_p": delta_p,
+                "p_internal": p_internal,
+                "p_external": p_external,
+                "od": od,
+                "wt_eff": wt_eff,
+                "t_over_d": t_over_d,
+                "d_over_t": d_over_t,
+                "smys": smys,
+            },
         }
 
     def compute_hoop(self, p_internal: float, p_external: float, wt_eff: float) -> Dict[str, Any]:
-        """Hoop stress check per ASME B31.4 Section 402.3"""
+        """
+        Hoop stress check per ASME B31.4 Section 402.3
+
+        CRITICAL: Per ASME B31.4 Sec 402.3, hoop stress is calculated from
+        INTERNAL DESIGN GAGE PRESSURE ONLY, NOT differential pressure (Pi - Po).
+
+        Formula: S_H = P_i × D / (2 × t)
+
+        Where:
+        - S_H = Hoop stress (psi)
+        - P_i = Internal design gage pressure (psi)
+        - D = Outside diameter (inches)
+        - t = Wall thickness (inches)
+
+        Criterion: S_H ≤ F × SMYS
+
+        NOTE: This equation is applicable for D/t ≥ 20 (thin-wall pipes)
+        """
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
         design_factor = self._hoop_design_factor()
-        delta_p = p_internal - p_external
+        d_over_t = od / wt_eff if wt_eff > 0 else float('inf')
 
+        # ASME B31.4 Sec 402.3: Use INTERNAL pressure only (NOT delta_p)
+        # S_H = P_i × D / (2 × t)
         if wt_eff <= 0 or od <= wt_eff:
             hoop_stress = float("inf")
+        elif p_internal <= 0:
+            # No internal pressure (empty pipe) - no hoop stress
+            hoop_stress = 0.0
         else:
-            hoop_stress = delta_p * od / (2 * wt_eff)
+            hoop_stress = p_internal * od / (2 * wt_eff)
 
+        # Allowable stress: S_allowable = F × SMYS
         allowable = design_factor * smys
-        sf = allowable / hoop_stress if hoop_stress > 0 else float("inf")
+
+        # Safety factor: SF = S_allowable / S_H
+        if hoop_stress > 0:
+            sf = allowable / hoop_stress
+        else:
+            sf = float("inf")
 
         return {
             "name": "Hoop Stress",
@@ -636,7 +772,14 @@ class LifeCycleAnalyzer:
             "safety_factor": sf,
             "utilization": 0 if sf == float("inf") else 1 / sf,
             "pass_fail": sf >= 1.0,
-            "details": {"delta_p": delta_p},
+            "details": {
+                "p_internal": p_internal,
+                "p_external": p_external,
+                "od": od,
+                "wt_eff": wt_eff,
+                "d_over_t": d_over_t,
+                "smys": smys,
+            },
         }
 
     def analyze_condition(self, condition_name: str, p_internal: float, 
@@ -1435,6 +1578,165 @@ def render_position_results(position_name: str, cond_result: Dict[str, Any]):
 
         **Safety Factor:** {format_safety_factor(comb['safety_factor'])}
         **Status:** {"PASS" if comb['passes'] else "FAIL"}
+        """)
+
+    # Get individual check results for detailed expanders
+    burst_chk = cond_result["checks"][0]  # Burst
+    collapse_chk = cond_result["checks"][1]  # Collapse
+    prop_chk = cond_result["checks"][2]  # Propagation
+    hoop_chk = cond_result["checks"][3]  # Hoop
+
+    with st.expander("💥 Burst Pressure Details (API RP 1111 Section 4.3.1)"):
+        d = burst_chk.get("details", {})
+        pb = burst_chk.get("pb", 0)
+        allow_burst = burst_chk.get("allowable_burst", d.get("design_factor", 0.75) * pb)
+
+        st.markdown(f"""
+**Formula (Barlow Thin-Wall):**
+```
+P_b = 0.90 × (SMYS + UTS) × t / (D - t)
+```
+
+**Input Parameters:**
+- OD (D): {d.get('od', 0):.3f} in
+- Wall Thickness (t): {d.get('wt_eff', 0):.4f} in
+- ID: {d.get('id', 0):.3f} in
+- SMYS: {d.get('smys', 0):,.0f} psi
+- UTS: {d.get('uts', 0):,.0f} psi
+
+**Calculation:**
+- Burst Pressure (P_b): {pb:,.0f} psi
+- Design Factor (f_d): {d.get('design_factor', 0.75):.2f}
+- Weld Factor (f_e): {d.get('joint_factor', 1.0):.2f}
+- Temperature Factor (f_t): {d.get('temperature_factor', 1.0):.2f}
+
+**Criterion:** (P_i - P_o) ≤ f_d × f_e × f_t × P_b
+- Internal Pressure (P_i): {d.get('p_internal', 0):,.0f} psi
+- External Pressure (P_o): {d.get('p_external', 0):,.0f} psi
+- Net Differential (P_i - P_o): {d.get('delta_p', 0):,.0f} psi
+- Allowable (f_d × f_e × f_t × P_b): {allow_burst:,.0f} psi
+
+**Result:**
+- Safety Factor: {format_safety_factor(burst_chk['safety_factor'])}
+- Utilization: {burst_chk['utilization']*100:.1f}%
+- Status: **{"PASS" if burst_chk['pass_fail'] else "FAIL"}**
+        """)
+
+    with st.expander("🔧 Collapse Pressure Details (API RP 1111 Section 4.3.2)"):
+        d = collapse_chk.get("details", {})
+        py = collapse_chk.get("py", 0)
+        pe = collapse_chk.get("pe", 0)
+        pc = collapse_chk.get("pc", 0)
+        allow_collapse = collapse_chk.get("allowable_collapse", collapse_chk.get("collapse_factor", 0.7) * pc)
+
+        st.markdown(f"""
+**Formulas:**
+```
+P_y = 2 × SMYS × (t/D)                    (Yield Collapse)
+P_e = 2 × E × (t/D)³ / [(1 - v²) × (1 + δ)]  (Elastic Collapse)
+P_c = P_y × P_e / sqrt(P_y² + P_e²)       (Critical Collapse)
+```
+
+**Input Parameters:**
+- OD (D): {d.get('od', 0):.3f} in
+- Wall Thickness (t): {d.get('wt_eff', 0):.4f} in
+- t/D Ratio: {d.get('t_over_d', 0):.6f}
+- D/t Ratio: {d.get('d_over_t', 0):.1f}
+- SMYS: {d.get('smys', 0):,.0f} psi
+- Elastic Modulus (E): {d.get('E', 0):,.0f} psi
+- Poisson's Ratio (v): {d.get('poisson', 0.3):.2f}
+- Ovality (δ): {collapse_chk.get('ovality', 0):.3f} ({collapse_chk.get('ovality', 0)*100:.1f}%)
+
+**Calculation:**
+- Yield Collapse (P_y): {py:,.0f} psi
+- Elastic Collapse (P_e): {pe:,.0f} psi
+- P_y/P_e Ratio: {d.get('py_pe_ratio', 0):.2f}
+- Collapse Mode: {collapse_chk.get('collapse_mode', 'N/A')}
+- Critical Collapse (P_c): {pc:,.0f} psi
+- Collapse Factor (f_o): {collapse_chk.get('collapse_factor', 0.7):.2f}
+
+**Criterion:** (P_o - P_i) ≤ f_o × P_c
+- External Pressure (P_o): {d.get('p_external', 0):,.0f} psi
+- Internal Pressure (P_i): {d.get('p_internal', 0):,.0f} psi
+- Net External (P_o - P_i): {d.get('delta_p', 0):,.0f} psi
+- Allowable (f_o × P_c): {allow_collapse:,.0f} psi
+
+**Result:**
+- Safety Factor: {format_safety_factor(collapse_chk['safety_factor'])}
+- Utilization: {collapse_chk['utilization']*100:.1f}%
+- Status: **{"PASS" if collapse_chk['pass_fail'] else "FAIL"}**
+        """)
+
+    with st.expander("🌊 Propagation Buckling Details (API RP 1111 Section 4.3.2.3)"):
+        d = prop_chk.get("details", {})
+        pp = prop_chk.get("pp", 0)
+        allow_prop = prop_chk.get("allowable_prop", prop_chk.get("design_factor", 0.8) * pp)
+
+        st.markdown(f"""
+**Formula:**
+```
+P_p = 35 × SMYS × (t/D)^2.5
+```
+
+**Input Parameters:**
+- OD (D): {d.get('od', 0):.3f} in
+- Wall Thickness (t): {d.get('wt_eff', 0):.4f} in
+- t/D Ratio: {d.get('t_over_d', 0):.6f}
+- D/t Ratio: {d.get('d_over_t', 0):.1f}
+- SMYS: {d.get('smys', 0):,.0f} psi
+
+**Calculation:**
+- Propagation Pressure (P_p): {pp:,.0f} psi
+- Design Factor (f_p): {prop_chk.get('design_factor', 0.8):.2f}
+- Allowable (f_p × P_p): {allow_prop:,.0f} psi
+
+**Criterion:** (P_o - P_i) ≤ f_p × P_p
+- External Pressure (P_o): {d.get('p_external', 0):,.0f} psi
+- Internal Pressure (P_i): {d.get('p_internal', 0):,.0f} psi
+- Net External (P_o - P_i): {d.get('delta_p', 0):,.0f} psi
+
+**Result:**
+- Safety Factor: {format_safety_factor(prop_chk['safety_factor'])}
+- Utilization: {prop_chk['utilization']*100:.1f}%
+- Status: **{"PASS" if prop_chk['pass_fail'] else "FAIL"}**
+
+**Note:** Propagation buckling arrestors may be required if this check fails.
+        """)
+
+    with st.expander("⭕ Hoop Stress Details (ASME B31.4 Section 402.3)"):
+        d = hoop_chk.get("details", {})
+        hoop_stress = hoop_chk.get("hoop_stress", 0)
+        allowable = hoop_chk.get("allowable", 0)
+
+        st.markdown(f"""
+**Formula (Barlow):**
+```
+S_H = P_i × D / (2 × t)
+```
+
+**IMPORTANT:** Per ASME B31.4 Sec 402.3, hoop stress uses **internal design gage pressure only**,
+NOT the differential pressure (P_i - P_o). This is the industry standard approach.
+
+**Input Parameters:**
+- OD (D): {d.get('od', 0):.3f} in
+- Wall Thickness (t): {d.get('wt_eff', 0):.4f} in
+- D/t Ratio: {d.get('d_over_t', 0):.1f}
+- Internal Pressure (P_i): {d.get('p_internal', 0):,.0f} psi
+- SMYS: {d.get('smys', 0):,.0f} psi
+
+**Calculation:**
+- Hoop Stress (S_H): {hoop_stress:,.0f} psi ({hoop_stress/1000:.2f} ksi)
+- Design Factor (F): {hoop_chk.get('design_factor', 0.72):.2f}
+- Allowable Stress (F × SMYS): {allowable:,.0f} psi ({allowable/1000:.2f} ksi)
+
+**Criterion:** S_H ≤ F × SMYS
+
+**Result:**
+- Safety Factor: {format_safety_factor(hoop_chk['safety_factor'])}
+- Utilization: {hoop_chk['utilization']*100:.1f}%
+- Status: **{"PASS" if hoop_chk['pass_fail'] else "FAIL"}**
+
+**Note:** Equation applicable for D/t ≥ 20 (thin-wall assumption).
         """)
 
 
