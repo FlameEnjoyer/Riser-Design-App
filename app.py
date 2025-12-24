@@ -220,6 +220,63 @@ class LifeCycleAnalyzer:
 
         return max(mop, 0.0)  # Ensure non-negative
 
+    def calculate_hydrotest_pressure(self, position: str = "Top") -> float:
+        """
+        Calculate Hydrotest Pressure per API RP 1111 Appendix C and Table C.3
+
+        Per API RP 1111 Appendix C:
+        - Hydrotest pressure accounts for hydrostatic head of test fluid
+        - Test pressure at top of riser = (Design × 1.25) - Hydrostatic Head
+        - Test pressure at bottom = Design × 1.25 (full test pressure)
+
+        Formula (from Appendix C Table C.3):
+        Pt_top = (Pd × 1.25) - (ρ × g × H / 144)
+
+        Where:
+        - Pd: Design pressure (psi)
+        - 1.25: Hydrotest factor (inverse of 0.8 design factor)
+        - ρ: Test fluid density (lb/ft³)
+        - g: Gravitational constant (included in density)
+        - H: Riser height (ft)
+        - 144: Conversion from lb/ft² to psi
+
+        Parameters:
+        -----------
+        position : str
+            "Top" or "Bottom" - riser position being tested
+
+        Returns:
+        --------
+        float : Hydrotest pressure in psi
+
+        Notes:
+        - TOP position: Pressure reduced by hydrostatic head of test fluid column
+        - BOTTOM position: Full test pressure (1.25 × design)
+        - Test fluid assumed same as operating fluid (fluid_sg)
+        - Follows API RP 1111 Appendix C Example Calculation methodology
+        """
+        # Base hydrotest pressure (1.25 × design pressure)
+        base_hydrotest_pressure = self.load.design_pressure_psi * HYDROTEST_FACTOR
+
+        # For BOTTOM position, use full test pressure
+        if position.lower() == "bottom":
+            return base_hydrotest_pressure
+
+        # For TOP position, subtract hydrostatic head of test fluid
+        # (similar to MOP calculation but for test fluid)
+        riser_length_ft = self._ft_from_m(self.load.riser_length_m)
+
+        # Test fluid density (assuming test fluid same as operating fluid)
+        test_fluid_density_pcf = self.pipe.fluid_sg * DEFAULT_WATER_DENSITY  # lb/ft³
+
+        # Hydrostatic head of test fluid column
+        hydrostatic_head_psi = (test_fluid_density_pcf * riser_length_ft) / 144.0
+
+        # Hydrotest pressure at top = Base test pressure - Hydrostatic head
+        hydrotest_top = base_hydrotest_pressure - hydrostatic_head_psi
+
+        return max(hydrotest_top, 0.0)  # Ensure non-negative
+
     def get_internal_pressure_for_check(self, condition_name: str, check_type: str, position: str = "Top") -> float:
         """
         Determine internal pressure based on condition, check type, and position
@@ -262,8 +319,10 @@ class LifeCycleAnalyzer:
             return 0.0
 
         elif condition_name == "Hydrotest":
-            # Elevated test pressure (1.25x design)
-            return self.load.design_pressure_psi * HYDROTEST_FACTOR
+            # Position-dependent hydrotest pressure per API RP 1111 Appendix C
+            # TOP: (Design × 1.25) - Hydrostatic Head of Test Fluid
+            # BOTTOM: Design × 1.25 (full test pressure)
+            return self.calculate_hydrotest_pressure(position)
 
         elif condition_name == "Operation":
             # CRITICAL: Position-dependent pressure logic
@@ -1923,17 +1982,40 @@ def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCo
 
     with tabs[2]:
         st.markdown("### Hydrotest Condition")
-        st.info(f"Hydrotest: Internal pressure = {HYDROTEST_FACTOR}× design pressure. Uses mill tolerance only.")
+
+        # Get hydrotest pressure values from results
+        ht_top = result["conditions"]["hydrotest_top"]
+        ht_bottom = result["conditions"]["hydrotest_bottom"]
+        ht_top_pressure = ht_top.get("p_internal_burst", load.design_pressure_psi * HYDROTEST_FACTOR)
+        ht_bottom_pressure = ht_bottom.get("p_internal_burst", load.design_pressure_psi * HYDROTEST_FACTOR)
+
+        # Display hydrotest information box per API RP 1111 Appendix C
+        st.info(f"""
+        **Hydrotest Pressure Strategy (Per API RP 1111 Appendix C, Table C.3):**
+
+        **🔵 TOP Position:** Pt = (Design × 1.25) - Hydrostatic Head = **{ht_top_pressure:.0f} psi**
+        - Test pressure accounts for pressure loss due to hydrostatic head of test fluid
+        - Formula: Pt_top = (Pd × 1.25) - (ρ × g × H / 144)
+
+        **🔴 BOTTOM Position:** Pt = Design × 1.25 = **{ht_bottom_pressure:.0f} psi**
+        - Full test pressure at mudline (no pressure loss adjustment)
+
+        **Test Parameters:**
+        - Design Pressure (Pd): {load.design_pressure_psi:.0f} psi
+        - Hydrotest Factor: {HYDROTEST_FACTOR}× (per API RP 1111, inverse of 0.8 design factor)
+        - Test Fluid: Same as operating fluid (SG = {pipe.fluid_sg:.2f})
+        - Uses mill tolerance only (no corrosion allowance)
+        """)
 
         position_tabs = st.tabs(["Top Position", "Bottom Position"])
 
         with position_tabs[0]:
             render_position_results("Top", result["conditions"]["hydrotest_top"])
-            st.caption("Top: High internal pressure with atmospheric external, maximum tension.")
+            st.caption(f"**Top Position:** Hydrotest pressure = {ht_top_pressure:.0f} psi (accounts for pressure loss). Atmospheric external, maximum tension.")
 
         with position_tabs[1]:
             render_position_results("Bottom", result["conditions"]["hydrotest_bottom"])
-            st.caption("Bottom: High internal pressure with full hydrostatic external, zero tension.")
+            st.caption(f"**Bottom Position:** Hydrotest pressure = {ht_bottom_pressure:.0f} psi (full test pressure). Full hydrostatic external, zero tension.")
 
     with tabs[3]:
         st.markdown("### Operation Condition")
@@ -1945,19 +2027,23 @@ def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCo
 
         # Display MOP information box
         st.info(f"""
-        **Operation Pressure Strategy:**
+        **Operation Pressure Strategy (Position-Dependent):**
 
-        **TOP Position:** ALL checks use **MOP** = {mop_value:.0f} psi
-        - Burst, Hoop, Longitudinal, Combined, Collapse, Propagation → **MOP**
+        **🔵 TOP Position - MOP for ALL Internal Pressure Loadings:**
+        - **ALL checks** (Burst, Hoop, Longitudinal, Combined, Collapse, Propagation) → **MOP = {mop_value:.0f} psi**
+        - MOP accounts for pressure loss due to hydrostatic head of riser fluid content
+        - This ensures conservative design at the top of riser where actual operating pressure is lower
 
-        **BOTTOM Position:**
-        - Burst, Hoop, Longitudinal, Combined → **Design Pressure** ({load.design_pressure_psi:.0f} psi)
-        - Collapse, Propagation → **Shut-in Pressure** ({load.shut_in_pressure_psi:.0f} psi)
+        **🔴 BOTTOM Position - Check-Type Dependent:**
+        - **Strength checks** (Burst, Hoop, Longitudinal, Combined) → **Design Pressure** ({load.design_pressure_psi:.0f} psi)
+        - **Stability checks** (Collapse, Propagation) → **Shut-in Pressure** ({load.shut_in_pressure_psi:.0f} psi)
 
-        **MOP (Maximum Operating Pressure):**
+        **📊 MOP (Maximum Operating Pressure) Calculation:**
         - Shut-in Location: **{shut_in_loc}**
-        - MOP Calculation: Shut-in - Hydrostatic Head of Riser Contents
-        - Includes {DESIGN_LIFE_YEARS}-year corrosion ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in)
+        - MOP = Shut-in Pressure - Hydrostatic Head of Riser Contents
+        - Formula: MOP = Ps - (ρ × g × H / 144)
+        - Includes {DESIGN_LIFE_YEARS}-year corrosion allowance ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in)
+        - Per API RP 1111: MOP represents actual operating pressure at top of riser
         """)
 
         position_tabs = st.tabs(["Top Position", "Bottom Position"])
