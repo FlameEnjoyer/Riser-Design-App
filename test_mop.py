@@ -73,24 +73,26 @@ p_collapse_top = analyzer1.get_internal_pressure_for_check("Operation", "collaps
 p_burst_top = analyzer1.get_internal_pressure_for_check("Operation", "burst", "Top")
 
 print(f"\n  Top Position:")
-print(f"    Burst/Hoop/Long/Combined:  {p_burst_top:.1f} psi (Design)")
-print(f"    Collapse/Propagation:      {p_collapse_top:.1f} psi (MOP)")
-print(f"    MOP Active: {'YES' if p_collapse_top == mop else 'NO'}")
+print(f"    ALL checks (Burst/Hoop/Long/Combined/Collapse/Prop):  {p_burst_top:.1f} psi (MOP)")
+print(f"    MOP Active: YES")
 
-# Bottom position - should use full shut-in for collapse
+# Bottom position - uses design for strength checks, shut-in for stability checks
 p_collapse_bottom = analyzer1.get_internal_pressure_for_check("Operation", "collapse", "Bottom")
 p_burst_bottom = analyzer1.get_internal_pressure_for_check("Operation", "burst", "Bottom")
 
 print(f"\n  Bottom Position:")
 print(f"    Burst/Hoop/Long/Combined:  {p_burst_bottom:.1f} psi (Design)")
 print(f"    Collapse/Propagation:      {p_collapse_bottom:.1f} psi (Shut-in)")
-print(f"    MOP Active: NO (uses full shut-in)")
+print(f"    MOP Active: NO")
 
-# Verify logic
+# Verify NEW logic
+# Top position: ALL checks use MOP
+assert p_burst_top == mop, f"ERROR: Top burst should use MOP ({mop:.1f}), got {p_burst_top:.1f}"
 assert p_collapse_top == mop, f"ERROR: Top collapse should use MOP ({mop:.1f}), got {p_collapse_top:.1f}"
-assert p_collapse_bottom == load1.shut_in_pressure_psi, f"ERROR: Bottom collapse should use shut-in ({load1.shut_in_pressure_psi:.1f}), got {p_collapse_bottom:.1f}"
-assert p_burst_top == load1.design_pressure_psi, f"ERROR: Top burst should use design ({load1.design_pressure_psi:.1f}), got {p_burst_top:.1f}"
+
+# Bottom position: Design for strength checks, shut-in for stability checks
 assert p_burst_bottom == load1.design_pressure_psi, f"ERROR: Bottom burst should use design ({load1.design_pressure_psi:.1f}), got {p_burst_bottom:.1f}"
+assert p_collapse_bottom == load1.shut_in_pressure_psi, f"ERROR: Bottom collapse should use shut-in ({load1.shut_in_pressure_psi:.1f}), got {p_collapse_bottom:.1f}"
 
 print(f"\n[OK] All assertions passed for Test Case 1!")
 
@@ -122,16 +124,25 @@ print(f"  When shut-in at top: MOP = Shut-in (no adjustment)")
 print(f"  MOP = {mop2:.2f} psi")
 
 # Test pressure selection
+p_burst_top2 = analyzer2.get_internal_pressure_for_check("Operation", "burst", "Top")
 p_collapse_top2 = analyzer2.get_internal_pressure_for_check("Operation", "collapse", "Top")
+p_burst_bottom2 = analyzer2.get_internal_pressure_for_check("Operation", "burst", "Bottom")
 p_collapse_bottom2 = analyzer2.get_internal_pressure_for_check("Operation", "collapse", "Bottom")
 
 print(f"\nPressure Selection for Operation Condition:")
-print(f"  Top Position Collapse:     {p_collapse_top2:.1f} psi (Shut-in, MOP=Shut-in)")
-print(f"  Bottom Position Collapse:  {p_collapse_bottom2:.1f} psi (Shut-in)")
+print(f"  Top Position:")
+print(f"    ALL checks:                {p_burst_top2:.1f} psi (MOP = Shut-in)")
+print(f"  Bottom Position:")
+print(f"    Burst/Hoop/Long/Combined:  {p_burst_bottom2:.1f} psi (Design)")
+print(f"    Collapse/Propagation:      {p_collapse_bottom2:.1f} psi (Shut-in)")
 
 # Verify logic
 assert mop2 == load2.shut_in_pressure_psi, f"ERROR: MOP should equal shut-in ({load2.shut_in_pressure_psi:.1f}), got {mop2:.1f}"
-assert p_collapse_top2 == load2.shut_in_pressure_psi, f"ERROR: Top collapse should use shut-in ({load2.shut_in_pressure_psi:.1f}), got {p_collapse_top2:.1f}"
+# Top: ALL checks use MOP (which equals shut-in when shut-in at top)
+assert p_burst_top2 == load2.shut_in_pressure_psi, f"ERROR: Top burst should use MOP=shut-in ({load2.shut_in_pressure_psi:.1f}), got {p_burst_top2:.1f}"
+assert p_collapse_top2 == load2.shut_in_pressure_psi, f"ERROR: Top collapse should use MOP=shut-in ({load2.shut_in_pressure_psi:.1f}), got {p_collapse_top2:.1f}"
+# Bottom: Design for strength, shut-in for stability
+assert p_burst_bottom2 == load2.design_pressure_psi, f"ERROR: Bottom burst should use design ({load2.design_pressure_psi:.1f}), got {p_burst_bottom2:.1f}"
 assert p_collapse_bottom2 == load2.shut_in_pressure_psi, f"ERROR: Bottom collapse should use shut-in ({load2.shut_in_pressure_psi:.1f}), got {p_collapse_bottom2:.1f}"
 
 print(f"\n[OK] All assertions passed for Test Case 2!")

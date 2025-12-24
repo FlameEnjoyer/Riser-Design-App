@@ -31,21 +31,27 @@ A new dropdown input has been added to the UI under **Pressures & Loading** tab:
 
 ### 2. Pressure Selection Logic
 
-The tool now uses **three independent pressures** for different checks:
+The tool uses **position-dependent pressure strategy** for Operation condition:
 
-#### Design Pressure
-- **Used for**: Burst, Hoop, Longitudinal, Combined Loading
-- **All positions**: Always uses input design pressure
-- **No MOP adjustment**
+#### TOP Position
+- **ALL checks** (Burst, Hoop, Longitudinal, Combined, Collapse, Propagation)
+- **Always uses MOP** (Maximum Operating Pressure)
+- MOP = Shut-in - Hydrostatic Head (if shut-in at bottom)
+- MOP = Shut-in (if shut-in at top, no adjustment)
 
-#### Shut-in Pressure / MOP
-- **Used for**: Collapse, Propagation
-- **Position-dependent**:
+#### BOTTOM Position
+- **Strength checks** (Burst, Hoop, Longitudinal, Combined)
+  - Uses **Design Pressure**
+- **Stability checks** (Collapse, Propagation)
+  - Uses **Shut-in Pressure**
 
-| Shut-in Location | Top Position | Bottom Position |
-|------------------|--------------|-----------------|
-| **Subsea Wellhead** | Uses **MOP** (Shut-in - Hydrostatic) | Uses **Full Shut-in** |
-| **Top of Riser** | Uses **Shut-in** (MOP = Shut-in) | Uses **Shut-in** |
+**Summary Table:**
+
+| Position | Check Type | Pressure Used |
+|----------|-----------|---------------|
+| **Top** | All checks | **MOP** |
+| **Bottom** | Burst, Hoop, Long, Combined | **Design** |
+| **Bottom** | Collapse, Propagation | **Shut-in** |
 
 ### 3. Calculation Method
 
@@ -91,8 +97,7 @@ MOP = 1236.0 - 764.65 = 471.35 psi
 
 | Position | Check Type | Pressure Used | Value |
 |----------|-----------|---------------|-------|
-| **Top** | Burst, Hoop, Long, Combined | Design | 1400 psi |
-| **Top** | Collapse, Propagation | **MOP** | **471 psi** |
+| **Top** | **ALL checks** (Burst, Hoop, Long, Combined, Collapse, Propagation) | **MOP** | **471 psi** |
 | **Bottom** | Burst, Hoop, Long, Combined | Design | 1400 psi |
 | **Bottom** | Collapse, Propagation | Shut-in | 1236 psi |
 
