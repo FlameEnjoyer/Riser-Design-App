@@ -844,6 +844,9 @@ class LifeCycleAnalyzer:
         design_factor = self._hoop_design_factor()
         d_over_t = od / wt_eff if wt_eff > 0 else float('inf')
 
+        # Calculate differential pressure (always needed for details)
+        delta_p = p_internal - p_external
+
         # Calculate hoop stress based on pressure conditions
         if wt_eff <= 0 or od <= wt_eff:
             hoop_stress = float("inf")
@@ -855,7 +858,6 @@ class LifeCycleAnalyzer:
         else:
             # Normal operation: differential pressure
             # S_H = (P_i - P_o) × D / (2 × t)
-            delta_p = p_internal - p_external
             if delta_p <= 0:
                 # External pressure exceeds internal - use absolute external pressure
                 hoop_stress = abs(delta_p) * od / (2 * wt_eff)
