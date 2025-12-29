@@ -1377,10 +1377,29 @@ def render_input_sections():
             st.caption("**MOP (Maximum Operating Pressure)** is calculated when shut-in is at Subsea Wellhead:\nMOP = Shut-in Pressure - Hydrostatic Head of Riser Contents")
 
     with tabs[2]:
-        st.session_state.water_depth = st.number_input("💧 Water Depth (m)", min_value=0.0, max_value=4000.0, value=st.session_state.water_depth, step=10.0, help="Kedalam Laut / Depth for external pressure calculation")
-        st.session_state.riser_length = st.number_input("📏 Riser Length (m)", min_value=0.0, max_value=4000.0, value=st.session_state.get("riser_length", st.session_state.water_depth), step=10.0, help="Vertical riser length for longitudinal tension calculation (typically equals water depth)")
-        st.caption(f"External pressure: {DEFAULT_WATER_DENSITY} lb/ft³ seawater density × depth × 3.28084 ft/m / 144")
-        st.caption("Note: Riser length affects applied tension T_a = void_submerged_weight × length")
+    with tabs[2]:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+             depth_unit = st.radio("Depth Unit", ["Meters (m)", "Feet (ft)"], horizontal=True)
+        
+        with col2:
+            # Display appropriate input based on unit
+            if "Meters" in depth_unit:
+                input_depth = st.number_input("💧 Water Depth", min_value=0.0, max_value=4000.0, value=st.session_state.water_depth, step=10.0)
+                st.session_state.water_depth = input_depth
+            else:
+                # Convert current stored meters to feet for display/input
+                current_feet = st.session_state.water_depth * 3.28084
+                input_depth_ft = st.number_input("💧 Water Depth", min_value=0.0, max_value=13000.0, value=current_feet, step=30.0)
+                # Convert back to meters for storage/calculation
+                st.session_state.water_depth = input_depth_ft / 3.28084
+
+        # Automatically set riser length to water depth
+        st.session_state.riser_length = st.session_state.water_depth
+        
+        st.info(f"📏 Riser Length automatically set to Water Depth: {st.session_state.water_depth:.2f} m")
+        st.caption(f"External pressure calculated at depth: {st.session_state.water_depth:.2f} m ({st.session_state.water_depth * 3.28084:.2f} ft)")
+        st.caption(f"Seawater density: {DEFAULT_WATER_DENSITY} lb/ft³")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
