@@ -2,10 +2,12 @@
 Riser Design Calculation Web App
 API RP 1111 + ASME B31.4/B31.8 checks
 
-Three Life Cycle Conditions:
-- Installation: No internal pressure, no corrosion, with mill tolerance
-- Hydrotest: Elevated internal pressure (1.25x design), no corrosion, with mill tolerance
-- Operation: Design pressures, with corrosion and mill tolerance
+Three Life Cycle Conditions with Multiple Wall Thickness Cases:
+- Installation: 2 WT types (Nominal, Nominal-Tolerance)
+- Hydrotest: 2 WT types (Nominal, Nominal-Tolerance)
+- Operation: 4 WT types (all combinations of tolerance and corrosion)
+
+Each WT type can be checked at Top and Bottom positions.
 """
 
 import math
@@ -277,6 +279,48 @@ class LifeCycleAnalyzer:
 
         return max(hydrotest_top, 0.0)  # Ensure non-negative
 
+    def calculate_internal_pressure_at_position(self, position: str) -> float:
+        """
+        Calculate internal pressure at a specific riser position based on wellhead location.
+
+        This handles the hydrostatic pressure variation along the riser.
+
+        Parameters:
+        -----------
+        position : str
+            "Top" or "Bottom" - riser position being analyzed
+
+        Returns:
+        --------
+        float : Internal pressure in psi at the specified position
+
+        Logic:
+        ------
+        Case 1: Wellhead at "Subsea Wellhead" (Bottom of Riser)
+            - Bottom: Pi = Shut-in Pressure (full pressure at wellhead)
+            - Top: Pi = Shut-in Pressure - Hydrostatic Head of Riser Contents (MOP)
+
+        Case 2: Wellhead at "Top of Riser"
+            - Top: Pi = Shut-in Pressure (full pressure at wellhead)
+            - Bottom: Pi = Shut-in Pressure + Hydrostatic Head of Riser Contents
+        """
+        riser_length_ft = self._ft_from_m(self.load.riser_length_m)
+        fluid_density_pcf = self.pipe.fluid_sg * DEFAULT_WATER_DENSITY  # lb/ft³
+        hydrostatic_head_psi = (fluid_density_pcf * riser_length_ft) / 144.0
+
+        if self.load.shut_in_location == "Top of Riser":
+            # Wellhead at top: pressure increases going down
+            if position.lower() == "top":
+                return self.load.shut_in_pressure_psi
+            else:  # bottom
+                return self.load.shut_in_pressure_psi + hydrostatic_head_psi
+        else:  # "Subsea Wellhead" - Wellhead at bottom
+            # Wellhead at bottom: pressure decreases going up
+            if position.lower() == "bottom":
+                return self.load.shut_in_pressure_psi
+            else:  # top
+                return max(self.load.shut_in_pressure_psi - hydrostatic_head_psi, 0.0)
+
     def get_internal_pressure_for_check(self, condition_name: str, check_type: str, position: str = "Top") -> float:
         """
         Determine internal pressure based on condition, check type, and position
@@ -294,25 +338,21 @@ class LifeCycleAnalyzer:
         --------
         float : Internal pressure in psi
 
-        CRITICAL LOGIC FOR OPERATION CONDITION WITH MOP:
+        CRITICAL LOGIC FOR OPERATION CONDITION:
 
-        Pressure Selection Strategy:
-        TOP POSITION:
-        - ALL checks (burst, hoop, longitudinal, combined, collapse, propagation) → Use MOP
+        Wellhead Location affects internal pressure distribution:
 
-        BOTTOM POSITION:
-        - Burst, Hoop, Longitudinal, Combined → Use DESIGN PRESSURE
-        - Collapse, Propagation → Use SHUT-IN PRESSURE
+        Case 1: Wellhead at "Subsea Wellhead" (Bottom)
+            - Bottom Position: Higher internal pressure (at wellhead)
+            - Top Position: Lower internal pressure (MOP = shut-in - hydrostatic head)
 
-        MOP (Maximum Operating Pressure) Logic:
-        - MOP = Shut-in Pressure - Hydrostatic Head of Riser Contents
-        - If shut-in location is "Subsea Wellhead": MOP = shut-in - hydrostatic
-        - If shut-in location is "Top of Riser": MOP = shut-in (no adjustment)
+        Case 2: Wellhead at "Top of Riser"
+            - Top Position: Shut-in pressure (at wellhead)
+            - Bottom Position: Higher internal pressure (shut-in + hydrostatic head)
 
-        Rationale:
-        - At TOP: MOP represents actual operating pressure at surface
-        - At BOTTOM: Design pressure for strength checks, shut-in for stability checks
-        - Position-dependent pressure accounts for fluid column weight
+        Pressure Selection by Check Type at Bottom Position:
+        - Strength checks (burst, hoop, longitudinal, combined) → Use DESIGN PRESSURE
+        - Stability checks (collapse, propagation) → Use position-dependent internal pressure
         """
         if condition_name == "Installation":
             # Empty pipe during installation
@@ -325,11 +365,14 @@ class LifeCycleAnalyzer:
             return self.calculate_hydrotest_pressure(position)
 
         elif condition_name == "Operation":
-            # CRITICAL: Position-dependent pressure logic
+            # CRITICAL: Position and wellhead-location dependent pressure logic
 
-            # TOP POSITION: Always use MOP for all checks
+            # Calculate position-dependent internal pressure
+            position_pressure = self.calculate_internal_pressure_at_position(position)
+
+            # TOP POSITION: Always use position-dependent pressure (MOP or shut-in based on wellhead loc)
             if position.lower() == "top":
-                return self.calculate_mop()
+                return position_pressure
 
             # BOTTOM POSITION: Check-type dependent
             else:
@@ -337,9 +380,9 @@ class LifeCycleAnalyzer:
                 if check_type in ["burst", "hoop", "longitudinal", "combined"]:
                     return self.load.design_pressure_psi
 
-                # Stability checks (collapse, propagation) - use shut-in pressure
+                # Stability checks (collapse, propagation) - use position-dependent pressure
                 elif check_type in ["collapse", "propagation"]:
-                    return self.load.shut_in_pressure_psi
+                    return position_pressure
 
         return 0.0
 
@@ -1016,70 +1059,150 @@ class LifeCycleAnalyzer:
             "shut_in_location": self.load.shut_in_location,
         }
 
+    def get_wt_type_description(self, use_mill_tolerance: bool, use_corrosion: bool) -> str:
+        """Generate description for wall thickness type"""
+        if not use_mill_tolerance and not use_corrosion:
+            return "Nominal"
+        elif use_mill_tolerance and not use_corrosion:
+            return "Nominal - Tolerance"
+        elif not use_mill_tolerance and use_corrosion:
+            return "Nominal - Corrosion"
+        else:  # both
+            return "Nominal - Tolerance - Corrosion"
+
+    def get_wt_type_short(self, use_mill_tolerance: bool, use_corrosion: bool) -> str:
+        """Generate short key for wall thickness type"""
+        if not use_mill_tolerance and not use_corrosion:
+            return "nominal"
+        elif use_mill_tolerance and not use_corrosion:
+            return "with_tol"
+        elif not use_mill_tolerance and use_corrosion:
+            return "with_corr"
+        else:  # both
+            return "with_tol_corr"
+
     def run_all_conditions(self) -> Dict[str, Any]:
         """
-        Analyze all six life cycle conditions (3 stages × 2 positions):
+        Analyze all life cycle conditions with multiple wall thickness types:
 
-        1. Installation Top: Empty pipe, atmospheric Po, max tension
-        2. Installation Bottom: Empty pipe, full hydrostatic Po, zero tension
-        3. Hydrotest Top: 1.25× design Pi, atmospheric Po, max tension
-        4. Hydrotest Bottom: 1.25× design Pi, full hydrostatic Po, zero tension
-        5. Operation Top: Design/shut-in Pi, atmospheric Po, max tension
-        6. Operation Bottom: Design/shut-in Pi, full hydrostatic Po, zero tension
+        Installation (2 WT types × 2 positions = 4 sub-conditions):
+        - Nominal WT (no tolerance, no corrosion)
+        - Nominal - Tolerance (with mill tolerance)
 
-        Critical Changes from Previous Implementation:
-        - External pressure varies by position (14.7 vs 14.7+hydrostatic)
-        - Internal pressure varies by check type in Operation condition
-        - Axial tension varies by position (full vs zero)
+        Hydrotest (2 WT types × 2 positions = 4 sub-conditions):
+        - Nominal WT (no tolerance, no corrosion)
+        - Nominal - Tolerance (with mill tolerance)
+
+        Operation (4 WT types × 2 positions = 8 sub-conditions):
+        - Nominal WT (no tolerance, no corrosion)
+        - Nominal - Tolerance (with mill tolerance only)
+        - Nominal - Corrosion (with corrosion only)
+        - Nominal - Tolerance - Corrosion (with both)
+
+        Total: 16 sub-conditions
 
         Returns:
         --------
         Dict with keys:
         - pipe: Pipe properties
         - loading: Loading conditions
-        - conditions: Dict with 6 condition results (keys: "installation_top", etc.)
-        - all_conditions_pass: Boolean (True if all 6 pass)
+        - conditions: Nested dict organized by stage -> wt_type -> position
+        - all_conditions_pass: Boolean (True if all pass)
         """
-        # Define all 6 conditions to analyze
-        # Format: (condition_name, position, use_mill_tolerance, use_corrosion)
-        conditions_to_analyze = [
-            # Installation: Empty pipe, mill tolerance only
-            ("Installation", "Top", True, False),
-            ("Installation", "Bottom", True, False),
-
-            # Hydrotest: Elevated pressure, mill tolerance only
-            ("Hydrotest", "Top", True, False),
-            ("Hydrotest", "Bottom", True, False),
-
-            # Operation: Design/shut-in pressure, mill tolerance + corrosion
-            ("Operation", "Top", True, True),
-            ("Operation", "Bottom", True, True),
+        # Define wall thickness types for each life cycle stage
+        # Format: (use_mill_tolerance, use_corrosion)
+        installation_wt_types = [
+            (False, False),  # Nominal
+            (True, False),   # Nominal - Tolerance
         ]
 
-        results = {}
+        hydrotest_wt_types = [
+            (False, False),  # Nominal
+            (True, False),   # Nominal - Tolerance
+        ]
 
-        for condition_name, position, use_mill, use_corr in conditions_to_analyze:
-            # Create condition key: "installation_top", "hydrotest_bottom", etc.
-            condition_key = f"{condition_name.lower()}_{position.lower()}"
+        operation_wt_types = [
+            (False, False),  # Nominal
+            (True, False),   # Nominal - Tolerance
+            (False, True),   # Nominal - Corrosion
+            (True, True),    # Nominal - Tolerance - Corrosion
+        ]
 
-            # Analyze this condition at this position
-            result = self.analyze_condition_at_position(
-                condition_name=condition_name,
-                position=position,
-                use_mill_tolerance=use_mill,
-                use_corrosion=use_corr
-            )
+        positions = ["Top", "Bottom"]
 
-            results[condition_key] = result
+        results = {
+            "installation": {},
+            "hydrotest": {},
+            "operation": {},
+        }
 
-        # Check if ALL 6 conditions pass
-        all_conditions_pass = all(r["all_pass"] for r in results.values())
+        # Analyze Installation conditions
+        for use_mill, use_corr in installation_wt_types:
+            wt_key = self.get_wt_type_short(use_mill, use_corr)
+            wt_desc = self.get_wt_type_description(use_mill, use_corr)
+            results["installation"][wt_key] = {
+                "description": wt_desc,
+                "positions": {}
+            }
+            for position in positions:
+                result = self.analyze_condition_at_position(
+                    condition_name="Installation",
+                    position=position,
+                    use_mill_tolerance=use_mill,
+                    use_corrosion=use_corr
+                )
+                result["wt_type_description"] = wt_desc
+                results["installation"][wt_key]["positions"][position.lower()] = result
+
+        # Analyze Hydrotest conditions
+        for use_mill, use_corr in hydrotest_wt_types:
+            wt_key = self.get_wt_type_short(use_mill, use_corr)
+            wt_desc = self.get_wt_type_description(use_mill, use_corr)
+            results["hydrotest"][wt_key] = {
+                "description": wt_desc,
+                "positions": {}
+            }
+            for position in positions:
+                result = self.analyze_condition_at_position(
+                    condition_name="Hydrotest",
+                    position=position,
+                    use_mill_tolerance=use_mill,
+                    use_corrosion=use_corr
+                )
+                result["wt_type_description"] = wt_desc
+                results["hydrotest"][wt_key]["positions"][position.lower()] = result
+
+        # Analyze Operation conditions
+        for use_mill, use_corr in operation_wt_types:
+            wt_key = self.get_wt_type_short(use_mill, use_corr)
+            wt_desc = self.get_wt_type_description(use_mill, use_corr)
+            results["operation"][wt_key] = {
+                "description": wt_desc,
+                "positions": {}
+            }
+            for position in positions:
+                result = self.analyze_condition_at_position(
+                    condition_name="Operation",
+                    position=position,
+                    use_mill_tolerance=use_mill,
+                    use_corrosion=use_corr
+                )
+                result["wt_type_description"] = wt_desc
+                results["operation"][wt_key]["positions"][position.lower()] = result
+
+        # Check if ALL conditions pass (iterate through all nested results)
+        all_pass = True
+        for stage_name, stage_data in results.items():
+            for wt_key, wt_data in stage_data.items():
+                for pos_key, pos_result in wt_data["positions"].items():
+                    if not pos_result["all_pass"]:
+                        all_pass = False
 
         return {
             "pipe": asdict(self.pipe),
             "loading": asdict(self.load),
-            "conditions": results,  # Now has 6 entries instead of 3
-            "all_conditions_pass": all_conditions_pass,
+            "conditions": results,
+            "all_conditions_pass": all_pass,
         }
 
 
@@ -1094,22 +1217,23 @@ def evaluate_standard_thicknesses(base_pipe: PipeProperties, load: LoadingCondit
         pipe_variant = PipeProperties(**{**asdict(base_pipe), "wt_in": wt})
         analyzer = LifeCycleAnalyzer(pipe_variant, load)
         result = analyzer.run_all_conditions()
-        
-        # Find worst safety factor across ALL 6 conditions and checks
+
+        # Find worst safety factor across ALL conditions (new nested structure)
         min_sf = float("inf")
         limiting_condition = ""
         limiting_check = ""
 
-        for cond_key, cond_result in result["conditions"].items():
-            # cond_key is now: "installation_top", "hydrotest_bottom", etc.
-            if cond_result["limiting"]["safety_factor"] < min_sf:
-                min_sf = cond_result["limiting"]["safety_factor"]
-
-                # Create display name: "Installation - Top"
-                stage = cond_result["condition_name"]
-                position = cond_result["position"]
-                limiting_condition = f"{stage} - {position}"
-                limiting_check = cond_result["limiting"]["name"]
+        for stage_name, stage_data in result["conditions"].items():
+            for wt_key, wt_data in stage_data.items():
+                for pos_key, pos_result in wt_data["positions"].items():
+                    if pos_result["limiting"]["safety_factor"] < min_sf:
+                        min_sf = pos_result["limiting"]["safety_factor"]
+                        # Create display name: "Installation - Nominal - Top"
+                        stage = pos_result["condition_name"]
+                        wt_desc = pos_result.get("wt_type_description", wt_data["description"])
+                        position = pos_result["position"]
+                        limiting_condition = f"{stage} ({wt_desc}) - {position}"
+                        limiting_check = pos_result["limiting"]["name"]
 
         records.append({
             "WT (in)": wt,
@@ -1430,10 +1554,13 @@ def build_verification_notes(pipe: PipeProperties, load: LoadingCondition, resul
     notes: List[str] = []
     d_over_t = pipe.od_in / max(pipe.wt_in, 1e-6)
 
-    # Check operation condition WT (use operation_top as representative)
-    op_wt = result["conditions"]["operation_top"]["wt_effective"]
-    if op_wt < 0.1:
-        notes.append(f"⚠️ Operation WT very thin ({op_wt:.4f} in) after corrosion and mill tolerance")
+    # Check operation condition WT (use operation with_tol_corr top as representative - worst case)
+    if "operation" in result["conditions"]:
+        op_data = result["conditions"]["operation"]
+        if "with_tol_corr" in op_data and "positions" in op_data["with_tol_corr"]:
+            op_wt = op_data["with_tol_corr"]["positions"]["top"]["wt_effective"]
+            if op_wt < 0.1:
+                notes.append(f"⚠️ Operation WT very thin ({op_wt:.4f} in) after corrosion and mill tolerance")
 
     if d_over_t > 120:
         notes.append(f"⚠️ High D/t ratio ({d_over_t:.1f}); check fabrication tolerances")
@@ -1444,12 +1571,16 @@ def build_verification_notes(pipe: PipeProperties, load: LoadingCondition, resul
     if pipe.fluid_sg < 0.02 or pipe.fluid_sg > 1.2:
         notes.append(f"⚠️ Fluid SG ({pipe.fluid_sg}) outside typical range")
 
-    # Check if any condition fails
-    for cond_name, cond in result["conditions"].items():
-        if not cond["all_pass"]:
-            # Format condition name nicely (e.g., "operation_top" -> "Operation Top")
-            formatted_name = cond_name.replace("_", " ").title()
-            notes.append(f"❌ {formatted_name} condition fails")
+    # Check if any condition fails (new nested structure)
+    for stage_name, stage_data in result["conditions"].items():
+        for wt_key, wt_data in stage_data.items():
+            for pos_key, pos_result in wt_data["positions"].items():
+                if not pos_result["all_pass"]:
+                    # Format condition name nicely
+                    stage = pos_result["condition_name"]
+                    wt_desc = pos_result.get("wt_type_description", wt_data["description"])
+                    position = pos_result["position"]
+                    notes.append(f"❌ {stage} ({wt_desc}) - {position} fails")
 
     return notes
 
@@ -1934,8 +2065,36 @@ def render_condition_results(cond_name: str, cond_result: Dict[str, Any]):
     st.info(f"Limiting: **{cond_result['limiting']['name']}** with SF = {cond_result['limiting']['safety_factor']:.2f}")
 
 
+def render_wt_type_results(wt_key: str, wt_data: Dict[str, Any], stage_name: str):
+    """Render results for a wall thickness type with Top/Bottom position tabs"""
+    wt_desc = wt_data["description"]
+
+    # Check if both positions pass
+    top_pass = wt_data["positions"]["top"]["all_pass"]
+    bottom_pass = wt_data["positions"]["bottom"]["all_pass"]
+    both_pass = top_pass and bottom_pass
+
+    st.markdown(f"##### {wt_desc}")
+    status_html = status_pill("PASS" if both_pass else "FAIL", both_pass)
+    st.markdown(f"**Status:** {status_html}", unsafe_allow_html=True)
+
+    # Show effective WT
+    eff_wt = wt_data["positions"]["top"]["wt_effective"]
+    nom_wt = wt_data["positions"]["top"]["wt_nominal"]
+    st.caption(f"Effective WT: {eff_wt:.4f} in (Nominal: {nom_wt:.4f} in)")
+
+    # Position tabs
+    position_tabs = st.tabs(["Top Position", "Bottom Position"])
+
+    with position_tabs[0]:
+        render_position_results("Top", wt_data["positions"]["top"])
+
+    with position_tabs[1]:
+        render_position_results("Bottom", wt_data["positions"]["bottom"])
+
+
 def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCondition):
-    """Render complete results with all six life cycle conditions (3 stages × 2 positions)"""
+    """Render complete results with all life cycle conditions and WT types"""
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
 
     tabs = st.tabs(["Summary", "Installation", "Hydrotest", "Operation", "Standard Thicknesses", "Verification"])
@@ -1944,135 +2103,129 @@ def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCo
         st.subheader("Life Cycle Analysis Summary")
 
         all_pass = result["all_conditions_pass"]
-        status_html = status_pill("ALL 6 CONDITIONS PASS" if all_pass else "SOME CONDITIONS FAIL", all_pass)
+        total_conditions = sum(
+            len(stage_data) * 2  # 2 positions per WT type
+            for stage_data in result["conditions"].values()
+        )
+        status_html = status_pill(f"ALL {total_conditions} CONDITIONS PASS" if all_pass else "SOME CONDITIONS FAIL", all_pass)
         st.markdown(f"Overall: {status_html}", unsafe_allow_html=True)
 
         st.markdown("---")
 
-        # Summary table - now with 6 rows
+        # Summary table - organized by stage, WT type, position
         summary_records = []
-        condition_order = [
-            "installation_top", "installation_bottom",
-            "hydrotest_top", "hydrotest_bottom",
-            "operation_top", "operation_bottom"
-        ]
 
-        for cond_key in condition_order:
-            cond = result["conditions"][cond_key]
+        for stage_name in ["installation", "hydrotest", "operation"]:
+            stage_data = result["conditions"][stage_name]
+            for wt_key, wt_data in stage_data.items():
+                for pos_key, pos_result in wt_data["positions"].items():
+                    stage_display = pos_result["condition_name"]
+                    wt_desc = wt_data["description"]
+                    position = pos_result["position"]
+                    display_name = f"{stage_display} - {wt_desc} - {position}"
 
-            # Create display name: "Installation - Top"
-            stage = cond["condition_name"]
-            position = cond["position"]
-            display_name = f"{stage} - {position}"
-
-            summary_records.append({
-                "Condition": display_name,
-                "Effective WT (in)": f"{cond['wt_effective']:.4f}",
-                "Po (psi)": f"{cond['p_external_psi']:.0f}",
-                "Pi Burst (psi)": f"{cond['p_internal_burst']:.0f}",
-                "Pi Collapse (psi)": f"{cond['p_internal_collapse']:.0f}",
-                "Limiting Check": cond["limiting"]["name"],
-                "Min SF": format_safety_factor(cond["limiting"]["safety_factor"]),
-                "Status": "PASS" if cond["all_pass"] else "FAIL",
-            })
+                    summary_records.append({
+                        "Stage": stage_display,
+                        "Wall Thickness Type": wt_desc,
+                        "Position": position,
+                        "Effective WT (in)": f"{pos_result['wt_effective']:.4f}",
+                        "Po (psi)": f"{pos_result['p_external_psi']:.0f}",
+                        "Pi Burst (psi)": f"{pos_result['p_internal_burst']:.0f}",
+                        "Pi Collapse (psi)": f"{pos_result['p_internal_collapse']:.0f}",
+                        "Limiting Check": pos_result["limiting"]["name"],
+                        "Min SF": format_safety_factor(pos_result["limiting"]["safety_factor"]),
+                        "Status": "PASS" if pos_result["all_pass"] else "FAIL",
+                    })
 
         df_summary = pd.DataFrame(summary_records)
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
         if all_pass:
-            st.success("✅ The selected wall thickness satisfies all design criteria for all 6 conditions (3 stages × 2 positions).")
+            st.success(f"✅ The selected wall thickness satisfies all design criteria for all {total_conditions} conditions.")
         else:
             st.error("❌ Wall thickness does NOT meet all criteria. Review failed conditions and consider increasing thickness.")
 
     with tabs[1]:
         st.markdown("### Installation Condition")
-        st.info("Installation: Empty pipe (Pi=0), external pressure + bending during lay. Uses mill tolerance only.")
+        st.info("""
+        **Installation:** Empty pipe (Pi=0), external pressure + bending during lay.
 
-        position_tabs = st.tabs(["Top Position", "Bottom Position"])
+        **Wall Thickness Types:**
+        - **Nominal:** Full wall thickness (as manufactured)
+        - **Nominal - Tolerance:** Wall thickness with mill tolerance (-12.5%) applied
+        """)
 
-        with position_tabs[0]:
-            render_position_results("Top", result["conditions"]["installation_top"])
-            st.caption("Top of riser: Atmospheric pressure only (14.7 psi), maximum longitudinal tension from full riser weight.")
+        installation_data = result["conditions"]["installation"]
 
-        with position_tabs[1]:
-            render_position_results("Bottom", result["conditions"]["installation_bottom"])
-            st.caption("Bottom of riser: Full hydrostatic external pressure, zero longitudinal tension (supported by mudline).")
+        # Create tabs for each WT type
+        wt_types = list(installation_data.keys())
+        wt_tabs = st.tabs([installation_data[wt]["description"] for wt in wt_types])
+
+        for i, wt_key in enumerate(wt_types):
+            with wt_tabs[i]:
+                render_wt_type_results(wt_key, installation_data[wt_key], "Installation")
 
     with tabs[2]:
         st.markdown("### Hydrotest Condition")
 
-        # Get hydrotest pressure values from results
-        ht_top = result["conditions"]["hydrotest_top"]
-        ht_bottom = result["conditions"]["hydrotest_bottom"]
-        ht_top_pressure = ht_top.get("p_internal_burst", load.design_pressure_psi * HYDROTEST_FACTOR)
-        ht_bottom_pressure = ht_bottom.get("p_internal_burst", load.design_pressure_psi * HYDROTEST_FACTOR)
+        # Get hydrotest pressure values
+        ht_nominal = result["conditions"]["hydrotest"]["nominal"]["positions"]["top"]
+        ht_top_pressure = ht_nominal.get("p_internal_burst", load.design_pressure_psi * HYDROTEST_FACTOR)
+        ht_bottom_pressure = result["conditions"]["hydrotest"]["nominal"]["positions"]["bottom"].get(
+            "p_internal_burst", load.design_pressure_psi * HYDROTEST_FACTOR
+        )
 
-        # Display hydrotest information box per API RP 1111 Appendix C
         st.info(f"""
         **Hydrotest Pressure Strategy (Per API RP 1111 Appendix C, Table C.3):**
 
         **🔵 TOP Position:** Pt = (Design × 1.25) - Hydrostatic Head = **{ht_top_pressure:.0f} psi**
-        - Test pressure accounts for pressure loss due to hydrostatic head of test fluid
-        - Formula: Pt_top = (Pd × 1.25) - (ρ × g × H / 144)
-
         **🔴 BOTTOM Position:** Pt = Design × 1.25 = **{ht_bottom_pressure:.0f} psi**
-        - Full test pressure at mudline (no pressure loss adjustment)
 
-        **Test Parameters:**
-        - Design Pressure (Pd): {load.design_pressure_psi:.0f} psi
-        - Hydrotest Factor: {HYDROTEST_FACTOR}× (per API RP 1111, inverse of 0.8 design factor)
-        - Test Fluid: Same as operating fluid (SG = {pipe.fluid_sg:.2f})
-        - Uses mill tolerance only (no corrosion allowance)
+        **Wall Thickness Types:**
+        - **Nominal:** Full wall thickness (new pipe)
+        - **Nominal - Tolerance:** With mill tolerance (-12.5%) applied
         """)
 
-        position_tabs = st.tabs(["Top Position", "Bottom Position"])
+        hydrotest_data = result["conditions"]["hydrotest"]
+        wt_types = list(hydrotest_data.keys())
+        wt_tabs = st.tabs([hydrotest_data[wt]["description"] for wt in wt_types])
 
-        with position_tabs[0]:
-            render_position_results("Top", result["conditions"]["hydrotest_top"])
-            st.caption(f"**Top Position:** Hydrotest pressure = {ht_top_pressure:.0f} psi (accounts for pressure loss). Atmospheric external, maximum tension.")
-
-        with position_tabs[1]:
-            render_position_results("Bottom", result["conditions"]["hydrotest_bottom"])
-            st.caption(f"**Bottom Position:** Hydrotest pressure = {ht_bottom_pressure:.0f} psi (full test pressure). Full hydrostatic external, zero tension.")
+        for i, wt_key in enumerate(wt_types):
+            with wt_tabs[i]:
+                render_wt_type_results(wt_key, hydrotest_data[wt_key], "Hydrotest")
 
     with tabs[3]:
         st.markdown("### Operation Condition")
 
-        # Get MOP info from operation_top result
-        op_top = result["conditions"]["operation_top"]
+        # Get pressure info
+        op_top = result["conditions"]["operation"]["with_tol_corr"]["positions"]["top"]
         shut_in_loc = op_top.get("shut_in_location", "Subsea Wellhead")
-        mop_value = op_top.get("mop_psi", 0)
 
-        # Display MOP information box
+        # Calculate internal pressures based on wellhead location
+        analyzer = LifeCycleAnalyzer(pipe, load)
+        top_pressure = analyzer.calculate_internal_pressure_at_position("Top")
+        bottom_pressure = analyzer.calculate_internal_pressure_at_position("Bottom")
+
         st.info(f"""
-        **Operation Pressure Strategy (Position-Dependent):**
+        **Operation Pressure Strategy (Wellhead Location: {shut_in_loc}):**
 
-        **🔵 TOP Position - MOP for ALL Internal Pressure Loadings:**
-        - **ALL checks** (Burst, Hoop, Longitudinal, Combined, Collapse, Propagation) → **MOP = {mop_value:.0f} psi**
-        - MOP accounts for pressure loss due to hydrostatic head of riser fluid content
-        - This ensures conservative design at the top of riser where actual operating pressure is lower
+        {"**🔵 TOP Position:** Pi = Shut-in Pressure (wellhead at top)" if shut_in_loc == "Top of Riser" else f"**🔵 TOP Position:** Pi = MOP = {top_pressure:.0f} psi (shut-in - hydrostatic head)"}
+        {"**🔴 BOTTOM Position:** Pi = Shut-in + Hydrostatic Head = " + f"{bottom_pressure:.0f} psi" if shut_in_loc == "Top of Riser" else f"**🔴 BOTTOM Position:** Pi = Shut-in = {bottom_pressure:.0f} psi (wellhead at bottom)"}
 
-        **🔴 BOTTOM Position - Check-Type Dependent:**
-        - **Strength checks** (Burst, Hoop, Longitudinal, Combined) → **Design Pressure** ({load.design_pressure_psi:.0f} psi)
-        - **Stability checks** (Collapse, Propagation) → **Shut-in Pressure** ({load.shut_in_pressure_psi:.0f} psi)
-
-        **📊 MOP (Maximum Operating Pressure) Calculation:**
-        - Shut-in Location: **{shut_in_loc}**
-        - MOP = Shut-in Pressure - Hydrostatic Head of Riser Contents
-        - Formula: MOP = Ps - (ρ × g × H / 144)
-        - Includes {DESIGN_LIFE_YEARS}-year corrosion allowance ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in)
-        - Per API RP 1111: MOP represents actual operating pressure at top of riser
+        **Wall Thickness Types (4 combinations):**
+        - **Nominal:** Full wall thickness
+        - **Nominal - Tolerance:** With mill tolerance (-12.5%)
+        - **Nominal - Corrosion:** With corrosion allowance ({CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f} in)
+        - **Nominal - Tolerance - Corrosion:** Both applied (worst case)
         """)
 
-        position_tabs = st.tabs(["Top Position", "Bottom Position"])
+        operation_data = result["conditions"]["operation"]
+        wt_types = list(operation_data.keys())
+        wt_tabs = st.tabs([operation_data[wt]["description"] for wt in wt_types])
 
-        with position_tabs[0]:
-            render_position_results("Top", result["conditions"]["operation_top"])
-            st.caption(f"**Top Position:** ALL checks use **MOP** ({mop_value:.0f} psi). Atmospheric external pressure, full weight tension.")
-
-        with position_tabs[1]:
-            render_position_results("Bottom", result["conditions"]["operation_bottom"])
-            st.caption("Bottom: Design pressure for burst/hoop/longitudinal/combined, **full shut-in** for collapse/propagation. Full hydrostatic external, zero tension.")
+        for i, wt_key in enumerate(wt_types):
+            with wt_tabs[i]:
+                render_wt_type_results(wt_key, operation_data[wt_key], "Operation")
 
     with tabs[4]:
         st.subheader("Standard Thickness Evaluation (ASME B36.10)")
@@ -2090,7 +2243,7 @@ def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCo
                 st.info(
                     f"Limiting: {first_pass['Limiting Condition']} - {first_pass['Limiting Check']} with SF {first_pass['Safety Factor']}"
                 )
-                
+
                 # Find closest standard >= input WT
                 closest_wt, closest_sch = find_closest_passing_standard_wt(pipe, load, pipe.wt_in)
                 if closest_wt:
@@ -2115,7 +2268,7 @@ def render_results(result: Dict[str, Any], pipe: PipeProperties, load: LoadingCo
                 st.warning(note)
         else:
             st.success("✅ All inputs within typical design ranges. No flags detected.")
-        
+
         with st.expander("Detailed Input Summary", expanded=False):
             st.json({"pipe": result["pipe"], "loading": result["loading"]}, expanded=False)
 
