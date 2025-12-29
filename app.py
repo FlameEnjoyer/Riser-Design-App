@@ -833,8 +833,10 @@ class LifeCycleAnalyzer:
 
         Criterion: S_H ≤ F × SMYS
 
-        NOTE: Uses differential pressure (P_i - P_o) because hoop stress is
-        caused by the pressure differential across the pipe wall.
+        SPECIAL CASE: For Installation condition (empty pipe, Pi=0),
+        the hoop stress is caused by external pressure (compressive):
+        S_H = P_o × D / (2 × t)
+
         This equation is applicable for D/t ≥ 20 (thin-wall assumption).
         """
         od = self.pipe.od_in
@@ -842,17 +844,23 @@ class LifeCycleAnalyzer:
         design_factor = self._hoop_design_factor()
         d_over_t = od / wt_eff if wt_eff > 0 else float('inf')
 
-        # Net pressure differential (causes hoop stress)
-        delta_p = p_internal - p_external
-
-        # Barlow formula: S_H = (P_i - P_o) × D / (2 × t)
+        # Calculate hoop stress based on pressure conditions
         if wt_eff <= 0 or od <= wt_eff:
             hoop_stress = float("inf")
-        elif delta_p <= 0:
-            # No net internal pressure - no hoop stress concern
-            hoop_stress = 0.0
+        elif p_internal <= 0:
+            # Installation condition: empty pipe (Pi = 0)
+            # Hoop stress from external pressure (compressive)
+            # S_H = P_o × D / (2 × t)
+            hoop_stress = p_external * od / (2 * wt_eff)
         else:
-            hoop_stress = delta_p * od / (2 * wt_eff)
+            # Normal operation: differential pressure
+            # S_H = (P_i - P_o) × D / (2 × t)
+            delta_p = p_internal - p_external
+            if delta_p <= 0:
+                # External pressure exceeds internal - use absolute external pressure
+                hoop_stress = abs(delta_p) * od / (2 * wt_eff)
+            else:
+                hoop_stress = delta_p * od / (2 * wt_eff)
 
         # Allowable stress: S_allowable = F × SMYS
         allowable = design_factor * smys

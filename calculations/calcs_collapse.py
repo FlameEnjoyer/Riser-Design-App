@@ -8,10 +8,13 @@ import math
 
 def calculate_yield_collapse(od, wt, smys, poisson_ratio=0.3):
     """
-    Calculate yield collapse pressure (P_y) according to API RP 1111.
-    
-    Formula: P_y = 2 * S * (t/D) / (1 - ν²)
-    
+    Calculate yield collapse pressure (P_y) - SIMPLIFIED FORMULA.
+
+    Formula: P_y = 2 * S * (t/D)
+
+    Note: This is the simplified yield collapse formula without Poisson correction,
+    which matches industry practice and validation data.
+
     Parameters:
     -----------
     od : float
@@ -21,15 +24,16 @@ def calculate_yield_collapse(od, wt, smys, poisson_ratio=0.3):
     smys : float
         Specified Minimum Yield Strength (ksi or psi)
     poisson_ratio : float
-        Poisson's ratio (default 0.3 for steel)
-        
+        Poisson's ratio (default 0.3 for steel) - NOT USED in simplified formula
+
     Returns:
     --------
     float : Yield collapse pressure (same units as SMYS)
     """
-    # P_y = 2 * S * (t/D) / (1 - ν²)
-    p_y = 2 * smys * (wt / od) / (1 - poisson_ratio**2)
-    
+    # P_y = 2 * S * (t/D) - Simplified formula
+    # This matches validation test cases and industry practice
+    p_y = 2 * smys * (wt / od)
+
     return p_y
 
 
@@ -70,19 +74,20 @@ def calculate_elastic_collapse(od, wt, elastic_modulus, poisson_ratio=0.3, ovali
 
 def calculate_critical_collapse(p_y, p_e):
     """
-    Calculate critical collapse pressure (P_c) according to API RP 1111.
-    
-    The critical collapse is determined based on the ratio P_y/P_e:
-    - If P_y/P_e < 4.0:  P_c = P_y
-    - If P_y/P_e >= 4.0: P_c = P_e * [P_y/(2*P_e)]^0.5 * [1 - P_y/(4*P_e)]
-    
+    Calculate critical collapse pressure (P_c) using Murphy-Langner formula.
+
+    Formula: P_c = (P_y × P_e) / sqrt(P_y² + P_e²)
+
+    This formula provides a smooth transition between yield and elastic collapse
+    and matches validation test cases.
+
     Parameters:
     -----------
     p_y : float
         Yield collapse pressure
     p_e : float
         Elastic collapse pressure
-        
+
     Returns:
     --------
     dict : Dictionary containing:
@@ -90,33 +95,30 @@ def calculate_critical_collapse(p_y, p_e):
         - collapse_mode: Type of collapse ("Yield", "Elastic", or "Plastic")
         - py_pe_ratio: Ratio of P_y to P_e
     """
-    # Calculate P_y/P_e ratio
+    # Calculate P_y/P_e ratio for mode classification
     if p_e > 0:
         ratio = p_y / p_e
     else:
         ratio = float('inf')
-    
-    # Determine collapse mode and calculate P_c
-    if ratio < 4.0:
-        # Elastic or plastic collapse region
-        if ratio <= 1.5:
-            collapse_mode = "Elastic"
-        else:
-            collapse_mode = "Plastic"
-        
-        # P_c = P_e * sqrt(P_y / (2*P_e)) * [1 - P_y / (4*P_e)]
-        if p_e > 0:
-            term1 = p_e
-            term2 = math.sqrt(p_y / (2 * p_e))
-            term3 = 1 - p_y / (4 * p_e)
-            p_c = term1 * term2 * term3
-        else:
-            p_c = 0.0
-    else:
-        # Yield collapse region
+
+    # Determine collapse mode based on ratio
+    if ratio <= 1.5:
+        collapse_mode = "Elastic"
+    elif ratio >= 4.0:
         collapse_mode = "Yield"
+    else:
+        collapse_mode = "Plastic"
+
+    # Murphy-Langner formula: P_c = (P_y × P_e) / sqrt(P_y² + P_e²)
+    # This formula matches validation test data
+    if p_y > 0 and p_e > 0:
+        p_c = (p_y * p_e) / math.sqrt(p_y**2 + p_e**2)
+    elif ratio >= 4.0:
+        # Pure yield collapse
         p_c = p_y
-    
+    else:
+        p_c = 0.0
+
     return {
         'critical_collapse': p_c,
         'collapse_mode': collapse_mode,
