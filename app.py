@@ -39,7 +39,7 @@ GRADE_PROPERTIES = {
     "X-52": {"smys_psi": 52000, "uts_psi": 66000},
     "X-56": {"smys_psi": 56000, "uts_psi": 71000},
     "X-60": {"smys_psi": 60000, "uts_psi": 75000},
-    "X-65": {"smys_psi": 65000, "uts_psi": 77000},
+    "X-65": {"smys_psi": 65000, "uts_psi": 78000},
     "X-70": {"smys_psi": 70000, "uts_psi": 82000},
     "X-80": {"smys_psi": 80000, "uts_psi": 90000},
     "X-90": {"smys_psi": 90000, "uts_psi": 100000},
