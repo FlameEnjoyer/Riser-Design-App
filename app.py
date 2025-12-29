@@ -1759,6 +1759,84 @@ def render_position_results(position_name: str, cond_result: Dict[str, Any]):
     df = pd.DataFrame(table_records)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
+    # Detailed Results Table (Burst Pressures, Resistances, Hoop Stress, Collapse Pressures)
+    st.markdown("**Detailed Pressure & Resistance Results:**")
+
+    # Extract values from check results
+    burst_chk = cond_result["checks"][0]  # Burst
+    collapse_chk = cond_result["checks"][1]  # Collapse
+    hoop_chk = cond_result["checks"][3]  # Hoop
+
+    # Get burst pressure values
+    pb = burst_chk.get("pb", 0)
+    d_burst = burst_chk.get("details", {})
+    f_d = d_burst.get("design_factor", 0.75)
+    f_e = d_burst.get("joint_factor", 1.0)
+    f_t = d_burst.get("temperature_factor", 1.0)
+    allowable_burst = f_d * f_e * f_t * pb
+
+    # Get collapse pressure values
+    py = collapse_chk.get("py", 0)
+    pe = collapse_chk.get("pe", 0)
+    pc = collapse_chk.get("pc", 0)
+
+    # Get hoop stress values
+    hoop_stress = hoop_chk.get("hoop_stress", 0)
+    d_hoop = hoop_chk.get("details", {})
+    delta_p_hoop = d_hoop.get("delta_p", 0)
+
+    # Calculate pressure resistances
+    # Pt = burst_pressure (theoretical)
+    hydro_test_resistance = allowable_burst  # fd × fe × ft × Pb
+    incidental_overpressure = 0.9 * pb  # 0.9 × Pt
+    design_pressure_resistance = 0.8 * pb  # 0.8 × Pt
+
+    detailed_records = [
+        {
+            "Parameter": "Burst Pressure (Pb)",
+            "Value": f"{pb:,.0f} psi",
+            "Description": "Theoretical burst pressure"
+        },
+        {
+            "Parameter": "Hydrostatic Test Pressure Resistance",
+            "Value": f"{hydro_test_resistance:,.0f} psi",
+            "Description": f"fd × fe × ft × Pb = {f_d:.2f} × {f_e:.2f} × {f_t:.2f} × {pb:,.0f}"
+        },
+        {
+            "Parameter": "Incidental Overpressure Resistance",
+            "Value": f"{incidental_overpressure:,.0f} psi",
+            "Description": f"0.9 × Pb = 0.9 × {pb:,.0f}"
+        },
+        {
+            "Parameter": "Design Pressure Resistance",
+            "Value": f"{design_pressure_resistance:,.0f} psi",
+            "Description": f"0.8 × Pb = 0.8 × {pb:,.0f}"
+        },
+        {
+            "Parameter": "Differential Pressure Hoop Stress",
+            "Value": f"{hoop_stress:,.0f} psi",
+            "Description": f"SH = (Pi - Po) × D / (2t) with ΔP = {delta_p_hoop:,.0f} psi"
+        },
+        {
+            "Parameter": "Yield Pressure at Collapse (Py)",
+            "Value": f"{py:,.0f} psi",
+            "Description": "Py = 2 × SMYS × (t/D)"
+        },
+        {
+            "Parameter": "Elastic Collapse Pressure (Pe)",
+            "Value": f"{pe:,.0f} psi",
+            "Description": "Pe = 2E(t/D)³ / [(1-ν²)(1+δ)]"
+        },
+        {
+            "Parameter": "Collapse Pressure (Pc)",
+            "Value": f"{pc:,.0f} psi",
+            "Description": f"Pc = Py×Pe / sqrt(Py²+Pe²) [{collapse_chk.get('collapse_mode', 'N/A')} mode]"
+        }
+    ]
+
+    df_detailed = pd.DataFrame(detailed_records)
+    st.dataframe(df_detailed, use_container_width=True, hide_index=True)
+
     # Limiting check
     limiting_sf_text = format_safety_factor(cond_result['limiting']['safety_factor'])
     st.info(f"**Limiting Check:** {cond_result['limiting']['name']} with SF = {limiting_sf_text}")
