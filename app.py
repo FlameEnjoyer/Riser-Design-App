@@ -1827,7 +1827,7 @@ def render_position_results(position_name: str, cond_result: Dict[str, Any]):
         {
             "Parameter": "Elastic Collapse Pressure (Pe)",
             "Value": f"{pe:,.0f} psi",
-            "Description": "Pe = 2E(t/D)³ / [(1-ν²)(1+δ)]"
+            "Description": "Pe = 2E(t/D)³ / (1-ν²)"
         },
         {
             "Parameter": "Collapse Pressure (Pc)",
@@ -1926,9 +1926,9 @@ P_b = 0.90 × (SMYS + UTS) × t / (D - t)
         st.markdown(f"""
 **Formulas:**
 ```
-P_y = 2 × SMYS × (t/D)                    (Yield Collapse)
-P_e = 2 × E × (t/D)³ / [(1 - v²) × (1 + δ)]  (Elastic Collapse)
-P_c = P_y × P_e / sqrt(P_y² + P_e²)       (Critical Collapse)
+P_y = 2 × SMYS × (t/D)                  (Yield Collapse)
+P_e = 2E × (t/D)³ / (1 - ν²)            (Elastic Collapse)
+P_c = (P_y × P_e) / sqrt(P_y² + P_e²)   (Critical Collapse - Murphy-Langner)
 ```
 
 **Input Parameters:**
@@ -1938,8 +1938,7 @@ P_c = P_y × P_e / sqrt(P_y² + P_e²)       (Critical Collapse)
 - D/t Ratio: {d.get('d_over_t', 0):.1f}
 - SMYS: {d.get('smys', 0):,.0f} psi
 - Elastic Modulus (E): {d.get('E', 0):,.0f} psi
-- Poisson's Ratio (v): {d.get('poisson', 0.3):.2f}
-- Ovality (δ): {collapse_chk.get('ovality', 0):.3f} ({collapse_chk.get('ovality', 0)*100:.1f}%)
+- Poisson's Ratio (ν): {d.get('poisson', 0.3):.2f}
 
 **Calculation:**
 - Yield Collapse (P_y): {py:,.0f} psi

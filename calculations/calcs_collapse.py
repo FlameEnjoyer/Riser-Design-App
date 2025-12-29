@@ -39,10 +39,13 @@ def calculate_yield_collapse(od, wt, smys, poisson_ratio=0.3):
 
 def calculate_elastic_collapse(od, wt, elastic_modulus, poisson_ratio=0.3, ovality=0.0):
     """
-    Calculate elastic collapse pressure (P_e) according to API RP 1111.
-    
-    Formula: P_e = 2 * E / (1 - ν²) * [(t/D)³ / (1 + 12(δ)²)]
-    
+    Calculate elastic collapse pressure (P_e) - SIMPLIFIED FORMULA.
+
+    Formula: P_e = 2E × (t/D)³ / (1 - ν²)
+
+    Note: This is the simplified elastic collapse formula without ovality factor,
+    which matches the standard formulation shown in reference materials.
+
     Parameters:
     -----------
     od : float
@@ -54,21 +57,18 @@ def calculate_elastic_collapse(od, wt, elastic_modulus, poisson_ratio=0.3, ovali
     poisson_ratio : float
         Poisson's ratio (default 0.3 for steel)
     ovality : float
-        Out-of-roundness (δ = (D_max - D_min) / D_nominal), typically 0.005-0.03
-        
+        Out-of-roundness (NOT USED in simplified formula)
+
     Returns:
     --------
     float : Elastic collapse pressure (same units as E)
     """
     # t/D ratio
     t_over_d = wt / od
-    
-    # P_e = 2 * E / (1 - ν²) * [(t/D)³ / (1 + 12*δ²)]
-    numerator = 2 * elastic_modulus * (t_over_d**3)
-    denominator = (1 - poisson_ratio**2) * (1 + 12 * ovality**2)
-    
-    p_e = numerator / denominator
-    
+
+    # P_e = 2E × (t/D)³ / (1 - ν²) - Simplified formula
+    p_e = 2 * elastic_modulus * (t_over_d**3) / (1 - poisson_ratio**2)
+
     return p_e
 
 
