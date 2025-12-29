@@ -1788,10 +1788,13 @@ def render_position_results(position_name: str, cond_result: Dict[str, Any]):
     delta_p_hoop = d_hoop.get("delta_p", 0)
 
     # Calculate pressure resistances
-    # Pt = burst_pressure (theoretical)
-    hydro_test_resistance = allowable_burst  # fd × fe × ft × Pb
-    incidental_overpressure = 0.9 * pb  # 0.9 × Pt
-    design_pressure_resistance = 0.8 * pb  # 0.8 × Pt
+    # Pt = Hydrostatic Test Pressure Resistance = fd × fe × ft × Pb
+    hydro_test_resistance = allowable_burst
+
+    # Incidental Overpressure Resistance = 0.9 × Pt
+    # Design Pressure Resistance = 0.8 × Pt
+    incidental_overpressure = 0.9 * hydro_test_resistance
+    design_pressure_resistance = 0.8 * hydro_test_resistance
 
     detailed_records = [
         {
@@ -1807,12 +1810,12 @@ def render_position_results(position_name: str, cond_result: Dict[str, Any]):
         {
             "Parameter": "Incidental Overpressure Resistance",
             "Value": f"{incidental_overpressure:,.0f} psi",
-            "Description": f"0.9 × Pb = 0.9 × {pb:,.0f}"
+            "Description": f"0.9 × Pt = 0.9 × {hydro_test_resistance:,.0f}"
         },
         {
             "Parameter": "Design Pressure Resistance",
             "Value": f"{design_pressure_resistance:,.0f} psi",
-            "Description": f"0.8 × Pb = 0.8 × {pb:,.0f}"
+            "Description": f"0.8 × Pt = 0.8 × {hydro_test_resistance:,.0f}"
         },
         {
             "Parameter": "Differential Pressure Hoop Stress",
