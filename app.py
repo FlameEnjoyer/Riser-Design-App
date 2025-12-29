@@ -1377,7 +1377,6 @@ def render_input_sections():
             st.caption("**MOP (Maximum Operating Pressure)** is calculated when shut-in is at Subsea Wellhead:\nMOP = Shut-in Pressure - Hydrostatic Head of Riser Contents")
 
     with tabs[2]:
-    with tabs[2]:
         col1, col2 = st.columns([1, 2])
         with col1:
              depth_unit = st.radio("Depth Unit", ["Meters (m)", "Feet (ft)"], horizontal=True)
