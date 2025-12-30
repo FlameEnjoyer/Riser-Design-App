@@ -1483,8 +1483,8 @@ def render_input_sections():
     with tabs[0]:
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.session_state.od_in = st.number_input("Outer Diameter (in)", min_value=2.0, max_value=48.0, value=st.session_state.od_in, step=0.01, format="%.3f")
-            st.session_state.wt_in = st.number_input("Wall Thickness (in)", min_value=0.1, max_value=3.0, value=st.session_state.wt_in, step=0.01, format="%.4f")
+            st.session_state.od_in = st.number_input("Outer Diameter (in)", min_value=2.0, max_value=48.0, value=st.session_state.od_in, step=0.001, format="%.3f")
+            st.session_state.wt_in = st.number_input("Wall Thickness (in)", min_value=0.1, max_value=3.0, value=st.session_state.wt_in, step=0.001, format="%.4f")
             st.caption(f"Mill tolerance: {MILL_TOLERANCE*100}% | Corrosion: {CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f}\" over {DESIGN_LIFE_YEARS} years")
         with col2:
             st.session_state.grade = st.selectbox("Pipe Grade", list(GRADE_PROPERTIES.keys()), index=list(GRADE_PROPERTIES.keys()).index(st.session_state.grade))
