@@ -625,8 +625,7 @@ class LifeCycleAnalyzer:
         """
         Burst pressure check per API RP 1111 Section 4.3.1
 
-        Formula (Barlow thin-wall approximation):
-        P_b = 0.90 × (SMYS + UTS) × t / (D - t)
+        Formula: P_b = 0.45 × (SMYS + UTS) × ln(D / D_i)
 
         Criterion: (P_i - P_o) ≤ f_d × f_e × f_t × P_b
 
@@ -634,6 +633,7 @@ class LifeCycleAnalyzer:
         - f_d = Design factor (0.75 for Riser/Flowline, 0.90 for Pipeline)
         - f_e = Weld joint factor (1.0 for seamless)
         - f_t = Temperature derating factor (1.0 for ambient)
+        - D_i = Inner diameter = D - 2t
         """
         fd = self._burst_design_factor(self.pipe.design_category)
         fe = 1.0  # Weld joint factor
@@ -643,8 +643,8 @@ class LifeCycleAnalyzer:
         smys = self.pipe.smys_psi
         uts = self.pipe.uts_psi
 
-        # Burst pressure: P_b = 0.90 × (SMYS + UTS) × t / (D - t)
-        pb = 0.90 * (smys + uts) * wt_eff / (od - wt_eff) if od > wt_eff else 0.0
+        # Burst pressure per API RP 1111: P_b = 0.45 × (SMYS + UTS) × ln(D / D_i)
+        pb = 0.45 * (smys + uts) * math.log(od / id_val) if id_val > 0 else 0.0
 
         # Allowable burst pressure
         allowable_burst = fd * fe * ft * pb
@@ -685,14 +685,13 @@ class LifeCycleAnalyzer:
 
         Formulas:
         - Yield Collapse: P_y = 2 × SMYS × (t/D)
-        - Elastic Collapse: P_e = 2 × E × (t/D)³ / [(1 - ν²) × (1 + δ)]
-        - Critical Collapse: P_c = P_y × P_e / √(P_y² + P_e²)
+        - Elastic Collapse: P_e = 2 × E × (t/D)³ / (1 - ν²)
+        - Critical Collapse (Murphy-Langner): P_c = P_y × P_e / √(P_y² + P_e²)
 
         Criterion: (P_o - P_i) ≤ f_o × P_c
 
         Where:
         - f_o = Collapse factor (0.70 for SMLS/ERW, 0.60 for DSAW)
-        - δ = Ovality (0.5% for Other Type, 1.0% for Reel-lay)
         """
         od = self.pipe.od_in
         smys = self.pipe.smys_psi
@@ -707,8 +706,8 @@ class LifeCycleAnalyzer:
         # Yield collapse: P_y = 2 × SMYS × (t/D)
         py = 2 * smys * t_over_d
 
-        # Elastic collapse adjusted for ovality: P_e = 2 × E × (t/D)³ / [(1 - ν²) × (1 + δ)]
-        pe = (2 * E * (t_over_d ** 3)) / ((1 - nu ** 2) * (1 + ovality))
+        # Elastic collapse (simplified): P_e = 2 × E × (t/D)³ / (1 - ν²)
+        pe = (2 * E * (t_over_d ** 3)) / (1 - nu ** 2)
 
         # Critical collapse: P_c = P_y × P_e / √(P_y² + P_e²)
         pc = (py * pe) / math.sqrt(py ** 2 + pe ** 2) if (py > 0 and pe > 0) else 0.0
@@ -1484,7 +1483,7 @@ def render_input_sections():
         col1, col2, col3 = st.columns(3)
         with col1:
             st.session_state.od_in = st.number_input("Outer Diameter (in)", min_value=2.0, max_value=48.0, value=st.session_state.od_in, step=0.001, format="%.3f")
-            st.session_state.wt_in = st.number_input("Wall Thickness (in)", min_value=0.1, max_value=3.0, value=st.session_state.wt_in, step=0.001, format="%.4f")
+            st.session_state.wt_in = st.number_input("Wall Thickness (in)", min_value=0.1, max_value=3.0, value=st.session_state.wt_in, step=0.001, format="%.3f")
             st.caption(f"Mill tolerance: {MILL_TOLERANCE*100}% | Corrosion: {CORROSION_RATE_PER_YEAR*DESIGN_LIFE_YEARS:.3f}\" over {DESIGN_LIFE_YEARS} years")
         with col2:
             st.session_state.grade = st.selectbox("Pipe Grade", list(GRADE_PROPERTIES.keys()), index=list(GRADE_PROPERTIES.keys()).index(st.session_state.grade))
